@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>rc</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #1e1e2e; color: #cdd6f4; font-family: system-ui, sans-serif; overflow: hidden; }
+
+    #header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; background: #181825; border-bottom: 1px solid #313244;
+      height: 40px; flex-shrink: 0;
+    }
+    #header .title { font-size: 14px; font-weight: 600; color: #89b4fa; }
+    #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+    .status-connected { background: #a6e3a1; color: #1e1e2e; }
+    .status-disconnected { background: #f38ba8; color: #1e1e2e; }
+    .status-connecting { background: #f9e2af; color: #1e1e2e; }
+
+    #terminal-container { flex: 1; padding: 4px; }
+    #app { display: flex; flex-direction: column; height: 100%; }
+
+    /* Overlays */
+    .overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    .overlay.visible { display: flex; }
+    .overlay .message {
+      background: #313244; padding: 24px 32px; border-radius: 12px;
+      text-align: center; max-width: 320px;
+    }
+    .overlay .message h3 { margin-bottom: 8px; }
+    .overlay .message p { color: #a6adc8; font-size: 14px; margin-bottom: 16px; }
+    .overlay .message button {
+      background: #89b4fa; color: #1e1e2e; border: none; border-radius: 6px;
+      padding: 8px 24px; font-size: 14px; cursor: pointer; margin: 4px;
+    }
+    .overlay .message button:hover { background: #74c7ec; }
+    .overlay .message button.btn-danger { background: #f38ba8; }
+    .overlay .message button.btn-danger:hover { background: #eba0ac; }
+
+    /* Process exited overlay */
+    #exit-overlay .message h3 { color: #f9e2af; }
+
+    /* Disconnected overlay */
+    #dc-overlay .message h3 { color: #f38ba8; }
+
+    /* ───── Floating Helper Button & Panel ───── */
+    #helper-fab {
+      display: none;
+      position: fixed; bottom: 20px; right: 20px; z-index: 90;
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #89b4fa; color: #1e1e2e; border: none;
+      font-size: 22px; cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      align-items: center; justify-content: center;
+      touch-action: manipulation;
+      transition: transform 0.15s;
+    }
+    #helper-fab:active { transform: scale(0.9); }
+
+    #helper-panel {
+      display: none;
+      position: fixed; bottom: 80px; right: 12px; z-index: 91;
+      background: #313244; border: 1px solid #45475a; border-radius: 12px;
+      padding: 12px; width: 220px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    #helper-panel.visible { display: block; }
+
+    #helper-panel .section-title {
+      font-size: 11px; color: #6c7086; text-transform: uppercase;
+      margin: 8px 0 4px 0; letter-spacing: 0.5px;
+    }
+    #helper-panel .section-title:first-child { margin-top: 0; }
+
+    #helper-panel .key-row {
+      display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap;
+    }
+    #helper-panel button.key-btn {
+      background: #45475a; color: #cdd6f4; border: none; border-radius: 6px;
+      padding: 10px 0; font-size: 14px; font-family: monospace;
+      cursor: pointer; touch-action: manipulation;
+      flex: 1; min-width: 44px; text-align: center;
+      transition: background 0.1s;
+    }
+    #helper-panel button.key-btn:active { background: #585b70; }
+    #helper-panel button.key-btn.active { background: #89b4fa; color: #1e1e2e; }
+    #helper-panel button.key-btn.wide { flex: 2; }
+
+    @media (max-width: 768px) {
+      #helper-fab { display: flex; }
+    }
+    @media (hover: none) and (pointer: coarse) {
+      #helper-fab { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <span class="title">🖥️ rc</span>
+      <span id="status" class="status status-connecting">connecting...</span>
+    </div>
+    <div id="terminal-container"></div>
+  </div>
+
+  <!-- Process Exited Overlay (restart) -->
+  <div id="exit-overlay" class="overlay">
+    <div class="message">
+      <h3>⚡ Process Exited</h3>
+      <p>The command has finished. Restart to run it again.</p>
+      <button id="restart-btn">↻ Restart</button>
+    </div>
+  </div>
+
+  <!-- Disconnected Overlay (reconnect) -->
+  <div id="dc-overlay" class="overlay">
+    <div class="message">
+      <h3>Disconnected</h3>
+      <p>The connection was lost. The process may still be running.</p>
+      <button onclick="connectWS()">Reconnect</button>
+    </div>
+  </div>
+
+  <!-- Floating Helper Button (mobile) -->
+  <button id="helper-fab" aria-label="Helper keyboard">⌨️</button>
+
+  <!-- Helper Key Panel -->
+  <div id="helper-panel">
+    <div class="section-title">Arrow Keys</div>
+    <div class="key-row">
+      <button class="key-btn" data-key="\x1b[D">←</button>
+      <button class="key-btn" data-key="\x1b[A">↑</button>
+      <button class="key-btn" data-key="\x1b[B">↓</button>
+      <button class="key-btn" data-key="\x1b[C">→</button>
+    </div>
+    <div class="section-title">Special Keys</div>
+    <div class="key-row">
+      <button class="key-btn wide" data-key="\t">Tab</button>
+      <button class="key-btn wide" data-key="\x1b">Esc</button>
+    </div>
+    <div class="key-row">
+      <button class="key-btn wide" data-key="\r">Enter</button>
+      <button class="key-btn wide" data-key=" ">Space</button>
+    </div>
+    <div class="section-title">Control</div>
+    <div class="key-row">
+      <button class="key-btn wide" data-key="\x03">Ctrl+C</button>
+      <button class="key-btn wide" id="ctrl-toggle">Ctrl ⏎</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+  <script>
+    const statusEl = document.getElementById('status');
+    const exitOverlay = document.getElementById('exit-overlay');
+    const dcOverlay = document.getElementById('dc-overlay');
+    const restartBtn = document.getElementById('restart-btn');
+    const helperFab = document.getElementById('helper-fab');
+    const helperPanel = document.getElementById('helper-panel');
+    const ctrlToggle = document.getElementById('ctrl-toggle');
+
+    // ───── Terminal Setup ─────
+    const term = new window.Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+      theme: {
+        background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#f5e0dc',
+        selectionBackground: '#585b70',
+        black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
+        blue: '#89b4fa', magenta: '#cba6f7', cyan: '#94e2d5', white: '#bac2de',
+        brightBlack: '#585b70', brightRed: '#f38ba8', brightGreen: '#a6e3a1',
+        brightYellow: '#f9e2af', brightBlue: '#89b4fa', brightMagenta: '#cba6f7',
+        brightCyan: '#94e2d5', brightWhite: '#a6adc8',
+      },
+      allowProposedApi: true,
+      scrollback: 50000,
+    });
+
+    const fitAddon = new window.FitAddon.FitAddon();
+    const webLinksAddon = new window.WebLinksAddon.WebLinksAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(webLinksAddon);
+    term.open(document.getElementById('terminal-container'));
+    fitAddon.fit();
+
+    let ws = null;
+    let reconnectTimer = null;
+    let ctrlActive = false;
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + cls;
+    }
+
+    function sendWS(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    // ───── Terminal I/O ─────
+    term.onData((data) => {
+      if (ctrlActive && data.length === 1) {
+        const code = data.toLowerCase().charCodeAt(0);
+        // a=97 → Ctrl+A=0x01 ... z=122 → Ctrl+Z=0x1A
+        if (code >= 97 && code <= 122) {
+          sendWS({ type: 'input', data: String.fromCharCode(code - 96) });
+          deactivateCtrl();
+          return;
+        }
+      }
+      sendWS({ type: 'input', data });
+    });
+
+    term.onResize(({ cols, rows }) => {
+      sendWS({ type: 'resize', cols, rows });
+    });
+
+    window.addEventListener('resize', () => fitAddon.fit());
+
+    // ───── Restart Button ─────
+    restartBtn.addEventListener('click', () => {
+      sendWS({ type: 'restart' });
+      exitOverlay.classList.remove('visible');
+    });
+
+    // ───── Floating Helper ─────
+    helperFab.addEventListener('click', (e) => {
+      e.stopPropagation();
+      helperPanel.classList.toggle('visible');
+    });
+
+    // Close panel when tapping outside
+    document.addEventListener('click', (e) => {
+      if (!helperPanel.contains(e.target) && e.target !== helperFab) {
+        helperPanel.classList.remove('visible');
+      }
+    });
+
+    // Key buttons (excluding ctrl-toggle which has its own handler)
+    helperPanel.querySelectorAll('button.key-btn[data-key]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.getAttribute('data-key');
+        sendWS({ type: 'input', data: key });
+        term.focus();
+      });
+    });
+
+    // Ctrl toggle
+    function deactivateCtrl() {
+      ctrlActive = false;
+      ctrlToggle.classList.remove('active');
+      ctrlToggle.textContent = 'Ctrl ⏎';
+    }
+
+    ctrlToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ctrlActive = !ctrlActive;
+      if (ctrlActive) {
+        ctrlToggle.classList.add('active');
+        ctrlToggle.textContent = 'Ctrl ✓';
+      } else {
+        deactivateCtrl();
+      }
+      term.focus();
+    });
+
+    // ───── WebSocket ─────
+    function connectWS() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setStatus('connecting...', 'status-connecting');
+      dcOverlay.classList.remove('visible');
+      exitOverlay.classList.remove('visible');
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+      ws.onopen = () => {
+        setStatus('connected', 'status-connected');
+        sendWS({ type: 'resize', cols: term.cols, rows: term.rows });
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          switch (msg.type) {
+            case 'output':
+              term.write(msg.data);
+              break;
+            case 'status':
+              if (msg.data === 'exited') {
+                setStatus('process exited', 'status-disconnected');
+                exitOverlay.classList.add('visible');
+              } else if (msg.data === 'restarted') {
+                setStatus('connected', 'status-connected');
+                exitOverlay.classList.remove('visible');
+                term.clear();
+                term.reset();
+              } else if (msg.data === 'running') {
+                setStatus('connected', 'status-connected');
+              }
+              break;
+            case 'error':
+              term.write('\r\n\x1b[1;31m[rc] Error: ' + msg.data + '\x1b[0m\r\n');
+              break;
+          }
+        } catch (e) {
+          console.error('WS parse error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        setStatus('disconnected', 'status-disconnected');
+        dcOverlay.classList.add('visible');
+        reconnectTimer = setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connectWS();
+    term.focus();
+  </script>
+</body>
+</html>
