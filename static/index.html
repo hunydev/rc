@@ -9,13 +9,31 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; background: #1e1e2e; color: #cdd6f4; font-family: system-ui, sans-serif; overflow: hidden; }
 
+    /* ───── Scrollbar (Catppuccin Mocha) ───── */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e1e2e; }
+    ::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #585b70; }
+    ::-webkit-scrollbar-corner { background: #1e1e2e; }
+    .xterm-viewport::-webkit-scrollbar { width: 8px; }
+    .xterm-viewport::-webkit-scrollbar-track { background: #1e1e2e; }
+    .xterm-viewport::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+    .xterm-viewport::-webkit-scrollbar-thumb:hover { background: #585b70; }
+    /* Firefox */
+    .xterm-viewport { scrollbar-width: thin; scrollbar-color: #45475a #1e1e2e; }
+
     #header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 16px; background: #181825; border-bottom: 1px solid #313244;
-      height: 40px; flex-shrink: 0;
+      height: 40px; flex-shrink: 0; gap: 12px; overflow: hidden;
     }
-    #header .title { font-size: 14px; font-weight: 600; color: #89b4fa; }
-    #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+    #header .title { font-size: 14px; font-weight: 600; color: #89b4fa; white-space: nowrap; }
+    #header .info {
+      font-size: 12px; color: #6c7086; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: center;
+    }
+    #header .info span { color: #a6adc8; }
+    #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
     .status-connected { background: #a6e3a1; color: #1e1e2e; }
     .status-disconnected { background: #f38ba8; color: #1e1e2e; }
     .status-connecting { background: #f9e2af; color: #1e1e2e; }
@@ -23,32 +41,39 @@
     #terminal-container { flex: 1; padding: 4px; }
     #app { display: flex; flex-direction: column; height: 100%; }
 
-    /* Overlays */
-    .overlay {
+    /* ───── Restart bar (bottom center, no modal) ───── */
+    #restart-bar {
+      display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 95;
+    }
+    #restart-bar.visible { display: block; }
+    #restart-bar button {
+      background: #89b4fa; color: #1e1e2e; border: none; border-radius: 8px;
+      padding: 10px 28px; font-size: 14px; font-weight: 600; cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      transition: background 0.15s, transform 0.1s;
+    }
+    #restart-bar button:hover { background: #74c7ec; }
+    #restart-bar button:active { transform: scale(0.95); }
+
+    /* ───── Disconnected overlay ───── */
+    #dc-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.7); z-index: 100;
       align-items: center; justify-content: center;
     }
-    .overlay.visible { display: flex; }
-    .overlay .message {
+    #dc-overlay.visible { display: flex; }
+    #dc-overlay .message {
       background: #313244; padding: 24px 32px; border-radius: 12px;
       text-align: center; max-width: 320px;
     }
-    .overlay .message h3 { margin-bottom: 8px; }
-    .overlay .message p { color: #a6adc8; font-size: 14px; margin-bottom: 16px; }
-    .overlay .message button {
+    #dc-overlay .message h3 { color: #f38ba8; margin-bottom: 8px; }
+    #dc-overlay .message p { color: #a6adc8; font-size: 14px; margin-bottom: 16px; }
+    #dc-overlay .message button {
       background: #89b4fa; color: #1e1e2e; border: none; border-radius: 6px;
-      padding: 8px 24px; font-size: 14px; cursor: pointer; margin: 4px;
+      padding: 8px 24px; font-size: 14px; cursor: pointer;
     }
-    .overlay .message button:hover { background: #74c7ec; }
-    .overlay .message button.btn-danger { background: #f38ba8; }
-    .overlay .message button.btn-danger:hover { background: #eba0ac; }
-
-    /* Process exited overlay */
-    #exit-overlay .message h3 { color: #f9e2af; }
-
-    /* Disconnected overlay */
-    #dc-overlay .message h3 { color: #f38ba8; }
+    #dc-overlay .message button:hover { background: #74c7ec; }
 
     /* ───── Floating Helper Button & Panel ───── */
     #helper-fab {
@@ -56,11 +81,12 @@
       position: fixed; bottom: 20px; right: 20px; z-index: 90;
       width: 48px; height: 48px; border-radius: 50%;
       background: #89b4fa; color: #1e1e2e; border: none;
-      font-size: 22px; cursor: pointer;
+      font-size: 22px; line-height: 1; cursor: pointer;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       align-items: center; justify-content: center;
       touch-action: manipulation;
       transition: transform 0.15s;
+      padding: 0;
     }
     #helper-fab:active { transform: scale(0.9); }
 
@@ -95,6 +121,7 @@
 
     @media (max-width: 768px) {
       #helper-fab { display: flex; }
+      #header .info { font-size: 11px; }
     }
     @media (hover: none) and (pointer: coarse) {
       #helper-fab { display: flex; }
@@ -105,22 +132,19 @@
   <div id="app">
     <div id="header">
       <span class="title">🖥️ rc</span>
+      <span class="info" id="header-info"></span>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
     <div id="terminal-container"></div>
   </div>
 
-  <!-- Process Exited Overlay (restart) -->
-  <div id="exit-overlay" class="overlay">
-    <div class="message">
-      <h3>⚡ Process Exited</h3>
-      <p>The command has finished. Restart to run it again.</p>
-      <button id="restart-btn">↻ Restart</button>
-    </div>
+  <!-- Restart button (inline, bottom center) -->
+  <div id="restart-bar">
+    <button id="restart-btn">↻ Restart</button>
   </div>
 
   <!-- Disconnected Overlay (reconnect) -->
-  <div id="dc-overlay" class="overlay">
+  <div id="dc-overlay">
     <div class="message">
       <h3>Disconnected</h3>
       <p>The connection was lost. The process may still be running.</p>
@@ -161,9 +185,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
   <script>
     const statusEl = document.getElementById('status');
-    const exitOverlay = document.getElementById('exit-overlay');
-    const dcOverlay = document.getElementById('dc-overlay');
+    const headerInfo = document.getElementById('header-info');
+    const restartBar = document.getElementById('restart-bar');
     const restartBtn = document.getElementById('restart-btn');
+    const dcOverlay = document.getElementById('dc-overlay');
     const helperFab = document.getElementById('helper-fab');
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
@@ -208,11 +233,26 @@
       }
     }
 
+    // ───── Header Info (populated from /health) ─────
+    async function loadHeaderInfo() {
+      try {
+        const res = await fetch('/info');
+        const info = await res.json();
+        const parts = [];
+        if (info.hostname) parts.push('<span>' + info.hostname + '</span>');
+        if (info.workspace) parts.push(info.workspace);
+        if (info.command) parts.push('$ ' + info.command);
+        headerInfo.innerHTML = parts.join(' · ');
+      } catch (e) {
+        headerInfo.textContent = '';
+      }
+    }
+    loadHeaderInfo();
+
     // ───── Terminal I/O ─────
     term.onData((data) => {
       if (ctrlActive && data.length === 1) {
         const code = data.toLowerCase().charCodeAt(0);
-        // a=97 → Ctrl+A=0x01 ... z=122 → Ctrl+Z=0x1A
         if (code >= 97 && code <= 122) {
           sendWS({ type: 'input', data: String.fromCharCode(code - 96) });
           deactivateCtrl();
@@ -231,7 +271,7 @@
     // ───── Restart Button ─────
     restartBtn.addEventListener('click', () => {
       sendWS({ type: 'restart' });
-      exitOverlay.classList.remove('visible');
+      restartBar.classList.remove('visible');
     });
 
     // ───── Floating Helper ─────
@@ -240,25 +280,21 @@
       helperPanel.classList.toggle('visible');
     });
 
-    // Close panel when tapping outside
     document.addEventListener('click', (e) => {
       if (!helperPanel.contains(e.target) && e.target !== helperFab) {
         helperPanel.classList.remove('visible');
       }
     });
 
-    // Key buttons (excluding ctrl-toggle which has its own handler)
     helperPanel.querySelectorAll('button.key-btn[data-key]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const key = btn.getAttribute('data-key');
-        sendWS({ type: 'input', data: key });
+        sendWS({ type: 'input', data: btn.getAttribute('data-key') });
         term.focus();
       });
     });
 
-    // Ctrl toggle
     function deactivateCtrl() {
       ctrlActive = false;
       ctrlToggle.classList.remove('active');
@@ -286,7 +322,7 @@
 
       setStatus('connecting...', 'status-connecting');
       dcOverlay.classList.remove('visible');
-      exitOverlay.classList.remove('visible');
+      restartBar.classList.remove('visible');
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -310,10 +346,10 @@
             case 'status':
               if (msg.data === 'exited') {
                 setStatus('process exited', 'status-disconnected');
-                exitOverlay.classList.add('visible');
+                restartBar.classList.add('visible');
               } else if (msg.data === 'restarted') {
                 setStatus('connected', 'status-connected');
-                exitOverlay.classList.remove('visible');
+                restartBar.classList.remove('visible');
                 term.clear();
                 term.reset();
               } else if (msg.data === 'running') {

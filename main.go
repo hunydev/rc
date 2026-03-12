@@ -2,12 +2,14 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -21,10 +23,16 @@ func main() {
 	command := flag.String("command", "", "Command to run in PTY (e.g. 'copilot --yolo')")
 	cols := flag.Int("cols", 120, "Initial terminal columns")
 	rows := flag.Int("rows", 30, "Initial terminal rows")
+	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	flag.Parse()
 
+	// Daemon mode: re-exec self without -daemon, detached
+	if *daemon {
+		daemonize()
+		return
+	}
+
 	if *command == "" {
-		// Default: try copilot, fall back to bash
 		if _, err := lookPath("copilot"); err == nil {
 			*command = "copilot"
 		} else {
@@ -65,6 +73,18 @@ func main() {
 	// WebSocket
 	mux.HandleFunc("/ws", hub.HandleWebSocket)
 
+	// Server info (hostname, workspace, command) for header display
+	hostname, _ := os.Hostname()
+	workspace, _ := os.Getwd()
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"hostname":  hostname,
+			"workspace": workspace,
+			"command":   *command,
+		})
+	})
+
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -89,6 +109,51 @@ func main() {
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// daemonize re-executes the current binary without -daemon, fully detached.
+func daemonize() {
+	args := []string{}
+	skipNext := false
+	for i, arg := range os.Args[1:] {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if arg == "-daemon" || arg == "--daemon" {
+			continue
+		}
+		// Handle "-daemon=true" or "--daemon=true"
+		if strings.HasPrefix(arg, "-daemon=") || strings.HasPrefix(arg, "--daemon=") {
+			continue
+		}
+		_ = i
+		args = append(args, arg)
+	}
+
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Dir, _ = os.Getwd()
+	cmd.Env = os.Environ()
+
+	// Detach: new session, no controlling terminal
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	// Redirect stdout/stderr to log file
+	logPath := fmt.Sprintf("/tmp/rc-%d.log", os.Getpid())
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		log.Fatalf("Failed to create log file: %v", err)
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("Failed to start daemon: %v", err)
+	}
+
+	fmt.Printf("rc daemon started (pid=%d, log=%s)\n", cmd.Process.Pid, logPath)
+	os.Exit(0)
 }
 
 func lookPath(cmd string) (string, error) {
