@@ -11,6 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux
@@ -22,11 +23,6 @@ jobs:
           - goos: darwin
             goarch: amd64
           - goos: darwin
-            goarch: arm64
-          # Windows
-          - goos: windows
-            goarch: amd64
-          - goos: windows
             goarch: arm64
 
     steps:
