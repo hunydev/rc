@@ -17,6 +17,8 @@ type PTYManager struct {
 	cmdArgs  []string
 	initCols uint16
 	initRows uint16
+	curCols  uint16
+	curRows  uint16
 	cmd      *exec.Cmd
 	ptmx     *os.File
 	buf      *OutputBuffer
@@ -56,6 +58,8 @@ func (m *PTYManager) start(cols, rows uint16) error {
 	m.cmd = cmd
 	m.ptmx = ptmx
 	m.closed = false
+	m.curCols = cols
+	m.curRows = rows
 	m.outputCh = make(chan []byte, 256)
 
 	go m.readLoop()
@@ -82,8 +86,12 @@ func (m *PTYManager) Restart() (<-chan []byte, error) {
 	// Clear output buffer
 	m.buf.Reset()
 
-	// Start fresh
-	if err := m.start(m.initCols, m.initRows); err != nil {
+	// Start fresh with last known size (not initial size)
+	cols, rows := m.curCols, m.curRows
+	if cols == 0 || rows == 0 {
+		cols, rows = m.initCols, m.initRows
+	}
+	if err := m.start(cols, rows); err != nil {
 		return nil, fmt.Errorf("restart: %w", err)
 	}
 
@@ -136,6 +144,8 @@ func (m *PTYManager) Resize(cols, rows uint16) error {
 	if m.closed {
 		return fmt.Errorf("pty closed")
 	}
+	m.curCols = cols
+	m.curRows = rows
 	return pty.Setsize(m.ptmx, &pty.Winsize{Cols: cols, Rows: rows})
 }
 

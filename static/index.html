@@ -352,6 +352,11 @@
                 restartBar.classList.remove('visible');
                 term.clear();
                 term.reset();
+                // Re-fit terminal and send current size to new PTY
+                setTimeout(() => {
+                  fitAddon.fit();
+                  sendWS({ type: 'resize', cols: term.cols, rows: term.rows });
+                }, 50);
               } else if (msg.data === 'running') {
                 setStatus('connected', 'status-connected');
               }
