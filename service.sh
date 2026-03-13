@@ -12,9 +12,11 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 # 기본 실행 옵션 (환경변수로 오버라이드 가능)
 PORT="${RC_PORT:-8000}"
-COMMAND="${RC_COMMAND:-copilot --yolo}"
+COMMAND="${RC_COMMAND:-bash}"
 COLS="${RC_COLS:-120}"
 ROWS="${RC_ROWS:-30}"
+BIND="${RC_BIND:-0.0.0.0}"
+PASSWORD="${RC_PASSWORD:-}"
 
 USER="$(whoami)"
 GROUP="$(id -gn)"
@@ -48,7 +50,7 @@ Type=simple
 User=${USER}
 Group=${GROUP}
 WorkingDirectory=${PROJECT_DIR}
-ExecStart=${BINARY} --port ${PORT} --command "${COMMAND}" --cols ${COLS} --rows ${ROWS}
+ExecStart=${BINARY} -p ${PORT} -c "${COMMAND}" --cols ${COLS} --rows ${ROWS} --bind ${BIND}
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal
@@ -58,6 +60,7 @@ SyslogIdentifier=${SERVICE_NAME}
 # 환경
 Environment=HOME=/home/${USER}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/${USER}/.local/bin:/home/${USER}/go/bin
+Environment=RC_PASSWORD=${PASSWORD}
 
 # 보안 강화
 NoNewPrivileges=true
@@ -203,9 +206,11 @@ ${YELLOW}로그:${NC}
 
 ${YELLOW}환경변수 (install 전에 설정):${NC}
   RC_PORT               포트 번호    (기본: 8000)
-  RC_COMMAND            실행 명령    (기본: copilot --yolo)
+  RC_COMMAND            실행 명령    (기본: bash)
   RC_COLS               터미널 컬럼  (기본: 120)
   RC_ROWS               터미널 행    (기본: 30)
+  RC_BIND               바인드 주소  (기본: 0.0.0.0)
+  RC_PASSWORD           접근 비밀번호 (미설정 시 인증 없음)
 
 ${YELLOW}사용 예시:${NC}
   ./service.sh install                 # 서비스 등록

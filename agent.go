@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 type Agent struct {
 	target   string
 	sessions []*agentSession
+	password string
 	mu       sync.RWMutex
 	writeCh  chan []byte
 }
@@ -29,7 +31,7 @@ type agentSession struct {
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
-func RunAgent(target string, commands []string, cols, rows uint16) {
+func RunAgent(target string, commands []string, cols, rows uint16, password string, bufferSize int) {
 	hostname, _ := os.Hostname()
 
 	sessions := make([]*agentSession, len(commands))
@@ -41,7 +43,7 @@ func RunAgent(target string, commands []string, cols, rows uint16) {
 			cmdArgs = parts[1:]
 		}
 
-		buf := NewOutputBuffer(10 * 1024 * 1024)
+		buf := NewOutputBuffer(bufferSize)
 		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, cols, rows, buf)
 		if err != nil {
 			log.Fatalf("Failed to start PTY for '%s': %v", cmd, err)
@@ -54,6 +56,7 @@ func RunAgent(target string, commands []string, cols, rows uint16) {
 	agent := &Agent{
 		target:   buildAttachURL(target),
 		sessions: sessions,
+		password: password,
 	}
 
 	// Graceful shutdown
@@ -145,7 +148,11 @@ func (a *Agent) drainOutput(idx int, s *agentSession) {
 // connect establishes a single connection to the hub.
 // Returns when the connection is lost.
 func (a *Agent) connect() error {
-	conn, _, err := websocket.DefaultDialer.Dial(a.target, nil)
+	header := http.Header{}
+	if a.password != "" {
+		header.Set("Authorization", "Bearer "+a.password)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(a.target, header)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/fs"
 	"log"
@@ -13,54 +12,89 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/spf13/cobra"
 )
 
 //go:embed static
 var staticFiles embed.FS
 
-// multiFlag allows repeated -c flags
-type multiFlag []string
+var version = "dev"
 
-func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
-func (m *multiFlag) Set(value string) error {
-	*m = append(*m, value)
-	return nil
+var (
+	cfgPort       int
+	cfgCommands   []string
+	cfgAttach     string
+	cfgPassword   string
+	cfgCols       int
+	cfgRows       int
+	cfgDaemon     bool
+	cfgBufferSize int
+	cfgBind       string
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "rc [flags]",
+	Short: "Remote Control — run CLI commands in PTY, stream to browser",
+	Long: `rc is a lightweight server that runs any CLI command in a pseudo-terminal (PTY)
+and streams it to a web browser in real-time via WebSocket.
+
+Examples:
+  rc                                    Run default shell (bash)
+  rc -c htop -c bash                    Multiple commands as tabs
+  rc -p 9000 -c "python3 -i"           Custom port
+  rc -a serverA:8000 -c bash            Agent mode: attach to remote hub
+  rc --password secret -c bash          Password-protected server
+  rc -d -c bash                         Run as daemon`,
+	Version:       version,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE:          run,
+}
+
+func init() {
+	f := rootCmd.Flags()
+	f.IntVarP(&cfgPort, "port", "p", 8000, "HTTP server port")
+	f.StringArrayVarP(&cfgCommands, "command", "c", nil, "Command to run (repeatable, e.g. -c bash -c htop)")
+	f.StringVarP(&cfgAttach, "attach", "a", "", "Attach to remote rc hub (agent mode)")
+	f.StringVar(&cfgPassword, "password", "", "Password for server access (env: RC_PASSWORD)")
+	f.IntVar(&cfgCols, "cols", 120, "Initial terminal columns")
+	f.IntVar(&cfgRows, "rows", 30, "Initial terminal rows")
+	f.BoolVarP(&cfgDaemon, "daemon", "d", false, "Run as background daemon")
+	f.IntVar(&cfgBufferSize, "buffer-size", 10, "Output buffer size in MB")
+	f.StringVar(&cfgBind, "bind", "0.0.0.0", "Bind address")
 }
 
 func main() {
-	port := flag.Int("port", 8000, "HTTP server port")
-	command := flag.String("command", "", "Command to run in PTY (single command, for backwards compat)")
-	attach := flag.String("attach", "", "Attach to remote rc hub (e.g. 'serverA:8000')")
-	var commands multiFlag
-	flag.Var(&commands, "c", "Command to run in PTY (repeatable, e.g. -c 'bash' -c 'htop')")
-	cols := flag.Int("cols", 120, "Initial terminal columns")
-	rows := flag.Int("rows", 30, "Initial terminal rows")
-	daemon := flag.Bool("daemon", false, "Run as background daemon")
-	flag.Parse()
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
-	// Daemon mode: re-exec self without -daemon, detached
-	if *daemon {
+func run(cmd *cobra.Command, args []string) error {
+	// Password from environment variable (fallback, avoids leaking in ps)
+	if cfgPassword == "" {
+		cfgPassword = os.Getenv("RC_PASSWORD")
+	}
+
+	// Daemon mode: re-exec self without -d/--daemon, fully detached
+	if cfgDaemon {
 		daemonize()
-		return
+		return nil
 	}
 
-	// Resolve command list: -c flags take priority, then --command, then default
-	if len(commands) == 0 {
-		if *command != "" {
-			commands = []string{*command}
-		} else {
-			if _, err := lookPath("copilot"); err == nil {
-				commands = []string{"copilot"}
-			} else {
-				commands = []string{"bash"}
-			}
-		}
+	// Default command
+	if len(cfgCommands) == 0 {
+		cfgCommands = []string{"bash"}
 	}
+
+	bufferBytes := cfgBufferSize * 1024 * 1024
 
 	// Agent mode: attach to a remote hub instead of running a server
-	if *attach != "" {
-		RunAgent(*attach, commands, uint16(*cols), uint16(*rows))
-		return
+	if cfgAttach != "" {
+		RunAgent(cfgAttach, cfgCommands, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes)
+		return nil
 	}
 
 	// Create sessions (one per command)
@@ -69,9 +103,9 @@ func main() {
 		PtyMgr *PTYManager
 		Buf    *OutputBuffer
 	}
-	sessions := make([]session, len(commands))
+	sessions := make([]session, len(cfgCommands))
 
-	for i, cmd := range commands {
+	for i, cmd := range cfgCommands {
 		parts := strings.Fields(cmd)
 		cmdName := parts[0]
 		var cmdArgs []string
@@ -79,10 +113,10 @@ func main() {
 			cmdArgs = parts[1:]
 		}
 
-		buf := NewOutputBuffer(10 * 1024 * 1024)
-		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(*cols), uint16(*rows), buf)
+		buf := NewOutputBuffer(bufferBytes)
+		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(cfgCols), uint16(cfgRows), buf)
 		if err != nil {
-			log.Fatalf("Failed to start PTY for '%s': %v", cmd, err)
+			return fmt.Errorf("failed to start PTY for '%s': %v", cmd, err)
 		}
 		sessions[i] = session{Name: cmd, PtyMgr: ptyMgr, Buf: buf}
 	}
@@ -113,19 +147,19 @@ func main() {
 	staticFS, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
-	mux.HandleFunc("/ws", hub.HandleWebSocket)
-	mux.HandleFunc("/attach", hub.HandleAttach)
+	mux.HandleFunc("/ws", requireAuth(cfgPassword, hub.HandleWebSocket))
+	mux.HandleFunc("/attach", requireAuth(cfgPassword, hub.HandleAttach))
 
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
-	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"hostname":  hostname,
 			"workspace": workspace,
-			"commands":  commands,
+			"commands":  cfgCommands,
 		})
-	})
+	}))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -141,7 +175,7 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok","tabs":%d,"running":%d}`, totalTabs, running)
 	})
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
 	server := &http.Server{Addr: addr, Handler: mux}
 
 	// Graceful shutdown
@@ -156,32 +190,29 @@ func main() {
 		server.Close()
 	}()
 
-	log.Printf("rc running on http://localhost%s", addr)
-	for i, cmd := range commands {
+	log.Printf("rc running on http://%s", addr)
+	for i, cmd := range cfgCommands {
 		log.Printf("  Tab %d: %s", i, cmd)
 	}
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("Server error: %v", err)
+	if cfgPassword != "" {
+		log.Printf("  Password protection: enabled")
 	}
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %v", err)
+	}
+	return nil
 }
 
-// daemonize re-executes the current binary without -daemon, fully detached.
+// daemonize re-executes the current binary without -d/--daemon, fully detached.
 func daemonize() {
 	args := []string{}
-	skipNext := false
-	for i, arg := range os.Args[1:] {
-		if skipNext {
-			skipNext = false
+	for _, arg := range os.Args[1:] {
+		if arg == "-d" || arg == "--daemon" {
 			continue
 		}
-		if arg == "-daemon" || arg == "--daemon" {
+		if strings.HasPrefix(arg, "--daemon=") {
 			continue
 		}
-		// Handle "-daemon=true" or "--daemon=true"
-		if strings.HasPrefix(arg, "-daemon=") || strings.HasPrefix(arg, "--daemon=") {
-			continue
-		}
-		_ = i
 		args = append(args, arg)
 	}
 
@@ -210,12 +241,3 @@ func daemonize() {
 	os.Exit(0)
 }
 
-func lookPath(cmd string) (string, error) {
-	for _, dir := range strings.Split(os.Getenv("PATH"), ":") {
-		path := dir + "/" + cmd
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-	return "", fmt.Errorf("%s not found", cmd)
-}

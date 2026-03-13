@@ -165,6 +165,34 @@
     @media (hover: none) and (pointer: coarse) {
       #helper-fab { display: flex; }
     }
+
+    /* ───── Login Overlay ───── */
+    #login-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: #1e1e2e; z-index: 9999;
+      justify-content: center; align-items: center;
+    }
+    #login-overlay.visible { display: flex; }
+    .login-box {
+      background: #181825; padding: 32px; border-radius: 12px;
+      border: 1px solid #313244; text-align: center;
+      width: 320px; max-width: 90vw;
+    }
+    .login-box h3 { color: #89b4fa; margin: 8px 0 4px; font-size: 20px; }
+    .login-box p { color: #6c7086; font-size: 13px; margin-bottom: 16px; }
+    .login-box input[type="password"] {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
+      font-size: 14px; outline: none; margin-bottom: 12px;
+    }
+    .login-box input[type="password"]:focus { border-color: #89b4fa; }
+    .login-box .login-submit {
+      width: 100%; padding: 10px; border-radius: 8px;
+      border: none; background: #89b4fa; color: #1e1e2e;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .login-box .login-submit:hover { background: #74c7ec; }
+    #login-error { display: none; color: #f38ba8; font-size: 12px; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -190,6 +218,18 @@
       <h3>Disconnected</h3>
       <p>The connection was lost. The process may still be running.</p>
       <button onclick="connectWS()">Reconnect</button>
+    </div>
+  </div>
+
+  <!-- Login Overlay -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <img src="/logo.svg" alt="rc" style="height:32px;width:32px;margin-bottom:8px;">
+      <h3>rc</h3>
+      <p>Enter password to continue</p>
+      <input type="password" id="login-password" placeholder="Password">
+      <button class="login-submit" id="login-btn">Login</button>
+      <p id="login-error">Invalid password</p>
     </div>
   </div>
 
@@ -385,10 +425,16 @@
       }
     }
 
-    // ───── Header Info ─────
-    async function loadHeaderInfo() {
+    // ───── Auth & Header Info ─────
+    let authToken = sessionStorage.getItem('rc-token') || '';
+    let authRequired = false;
+
+    function authHeaders() {
+      return authToken ? { 'Authorization': 'Bearer ' + authToken } : {};
+    }
+
+    async function loadHeaderFromInfo(res) {
       try {
-        const res = await fetch('/info');
         const info = await res.json();
         const parts = [];
         if (info.hostname) parts.push('<span>' + info.hostname + '</span>');
@@ -398,7 +444,53 @@
         headerInfo.textContent = '';
       }
     }
-    loadHeaderInfo();
+
+    async function initApp() {
+      let res;
+      try { res = await fetch('/info'); } catch (e) { connectWS(); return; }
+      if (res.ok) {
+        await loadHeaderFromInfo(res);
+        connectWS();
+        return;
+      }
+      if (res.status === 401) {
+        authRequired = true;
+        if (authToken) {
+          try { res = await fetch('/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
+          if (res.ok) {
+            await loadHeaderFromInfo(res);
+            connectWS();
+            return;
+          }
+          authToken = '';
+          sessionStorage.removeItem('rc-token');
+        }
+        document.getElementById('login-overlay').classList.add('visible');
+        document.getElementById('login-password').focus();
+      }
+    }
+
+    async function doLogin() {
+      const pwd = document.getElementById('login-password').value;
+      if (!pwd) return;
+      try {
+        const res = await fetch('/info', { headers: { 'Authorization': 'Bearer ' + pwd } });
+        if (res.ok) {
+          authToken = pwd;
+          authRequired = true;
+          sessionStorage.setItem('rc-token', authToken);
+          await loadHeaderFromInfo(res);
+          document.getElementById('login-overlay').classList.remove('visible');
+          connectWS();
+        } else {
+          document.getElementById('login-error').style.display = 'block';
+          document.getElementById('login-password').value = '';
+          document.getElementById('login-password').focus();
+        }
+      } catch (e) {
+        document.getElementById('login-error').style.display = 'block';
+      }
+    }
 
     // ───── Resize ─────
     window.addEventListener('resize', () => {
@@ -510,7 +602,8 @@
       restartBar.classList.remove('visible');
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${proto}//${location.host}/ws`);
+      const tokenParam = authRequired && authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+      ws = new WebSocket(`${proto}//${location.host}/ws${tokenParam}`);
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
@@ -601,7 +694,12 @@
       }
     }, 1000);
 
-    connectWS();
+    document.getElementById('login-btn').addEventListener('click', doLogin);
+    document.getElementById('login-password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin();
+    });
+
+    initApp();
   </script>
 </body>
 </html>

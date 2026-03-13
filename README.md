@@ -29,11 +29,12 @@ Agent on Server C ──── PTY × K (remote commands)
 
 | File | Role |
 |------|------|
-| `main.go` | HTTP server, routing, `-c` multi-command flag, `--attach` agent mode, `-daemon` mode |
+| `main.go` | Cobra CLI, HTTP server, routing, auth middleware, `-c` multi-command, `-a` agent mode, `-d` daemon |
 | `hub.go` | WebSocket hub — browser clients, local PTYs, remote agents, dynamic tab management |
-| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub, streams I/O, auto-reconnect |
+| `auth.go` | Bearer token authentication for HTTP and WebSocket endpoints |
+| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub (with auth), streams I/O, auto-reconnect |
 | `pty_manager.go` | PTY lifecycle — spawns command, reads output, writes input, resize, restart |
-| `output_buffer.go` | Ring buffer (default 10 MB) — stores output for session replay on reconnect |
+| `output_buffer.go` | Ring buffer (configurable, default 10 MB) — stores output for session replay on reconnect |
 | `static/index.html` | Single-page frontend — xterm.js terminals, tab bar, WebSocket client, mobile helper |
 | `service.sh` | systemd service management — install/uninstall/start/stop/build (stop→build→restart) |
 
@@ -81,23 +82,35 @@ All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote? }`.
 # Build
 go build -o rc .
 
-# Run (defaults to 'copilot' if available, otherwise 'bash')
+# Run (defaults to bash)
 ./rc
 
-# Run with specific command (legacy flag, still works)
-./rc --command "python3 -i"
-
 # Multiple commands with tabs
-./rc -c "copilot" -c "bash" -c "htop"
+./rc -c "htop" -c "bash" -c "python3 -i"
 
-# Custom port
-./rc --port 9000 -c "copilot --yolo" -c "bash"
+# Custom port and bind address
+./rc -p 9000 --bind 127.0.0.1 -c "bash"
+
+# Password-protected server
+./rc --password mysecret -c "bash"
 
 # Run as background daemon (logs to /tmp/rc-<pid>.log)
-./rc -daemon -c "bash"
+./rc -d -c "bash"
 ```
 
 Open `http://localhost:8000` in your browser.
+
+### Password Authentication
+
+When `--password` is set, all API and WebSocket endpoints require a Bearer token. The frontend shows a login page automatically.
+
+```bash
+# Server with password
+./rc --password mysecret -c "bash"
+
+# Password via environment variable (recommended, avoids ps visibility)
+RC_PASSWORD=mysecret ./rc -c "bash"
+```
 
 ### Remote Attach (Agent Mode)
 
@@ -108,7 +121,10 @@ Run commands on server B and monitor them from server A's browser:
 ./rc -c "bash"
 
 # Server B (agent) — attach to server A
-./rc --attach serverA:8000 -c "htop" -c "tail -f /var/log/syslog"
+./rc -a serverA:8000 -c "htop" -c "tail -f /var/log/syslog"
+
+# With password-protected hub
+./rc -a serverA:8000 --password mysecret -c "htop"
 ```
 
 Server B spawns the commands locally and streams them to server A. The browser on server A automatically gets new tabs for server B's commands (`serverB: htop`, `serverB: tail -f ...`). You can type, resize, and restart — all routed back to server B.
@@ -119,15 +135,18 @@ The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can a
 
 ## CLI Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | `8000` | HTTP server port |
-| `-c` | `copilot` or `bash` | Command to run (repeatable for multi-tab, e.g. `-c "bash" -c "htop"`) |
-| `--attach` | — | Attach to a remote hub (e.g. `--attach serverA:8000`). Runs in agent mode. |
-| `--daemon` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
-| `--command` | — | Legacy single-command flag (use `-c` instead) |
-| `--cols` | `120` | Initial terminal columns |
-| `--rows` | `30` | Initial terminal rows |
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--port` | `-p` | `8000` | HTTP server port |
+| `--command` | `-c` | `bash` | Command to run (repeatable for multi-tab, e.g. `-c "bash" -c "htop"`) |
+| `--attach` | `-a` | — | Attach to a remote hub (e.g. `-a serverA:8000`). Runs in agent mode. |
+| `--password` | | — | Password for server access (Bearer token). Env: `RC_PASSWORD` |
+| `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
+| `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
+| `--buffer-size` | | `10` | Output buffer size in MB |
+| `--cols` | | `120` | Initial terminal columns |
+| `--rows` | | `30` | Initial terminal rows |
+| `--version` | `-v` | | Print version and exit |
 
 ## systemd Service
 
@@ -161,11 +180,13 @@ Environment variables for `service.sh install`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RC_PORT` | `8000` | Server port |
-| `RC_COMMAND` | `copilot --yolo` | Command to run |
+| `RC_COMMAND` | `bash` | Command to run |
 | `RC_COLS` | `120` | Terminal columns |
 | `RC_ROWS` | `30` | Terminal rows |
+| `RC_BIND` | `0.0.0.0` | Bind address |
+| `RC_PASSWORD` | — | Access password (set via env to avoid ps visibility) |
 
-Example: `RC_PORT=9000 RC_COMMAND="bash" ./service.sh install`
+Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 
 ## Frontend Features
 
@@ -177,6 +198,7 @@ Example: `RC_PORT=9000 RC_COMMAND="bash" ./service.sh install`
   - **REMOTE** badge — italic purple styling for remote agent tabs
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
+- **Login page** — automatic login overlay when password is set; token stored in session
 - **Header** — Shows logo, hostname, working directory, and command list
 - **Restart bar** — appears when active tab's command exits; click to restart
 - **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
@@ -195,6 +217,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 
 ## Dependencies
 
+- [spf13/cobra](https://github.com/spf13/cobra) — CLI framework
 - [creack/pty](https://github.com/creack/pty) — PTY management
 - [gorilla/websocket](https://github.com/gorilla/websocket) — WebSocket server
 - [xterm.js](https://xtermjs.org/) — Browser terminal emulator (loaded via CDN)
