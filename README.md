@@ -6,6 +6,7 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 
 - **Remote access** — Control CLI tools (AI agents, build systems, REPLs) from any device with a browser.
 - **Multi-command tabs** — Run multiple commands in one session with `-c` flag. Switch between them with browser tabs.
+- **Distributed terminals** — Attach remote servers to a central hub with `--attach`. Monitor everything from one browser.
 - **Session persistence** — Process survives browser disconnection. Reconnect and see full history.
 - **Mobile friendly** — Floating helper keyboard for touch devices (arrow keys, Ctrl combos, Tab, Esc).
 - **Restart on exit** — When the command finishes, a restart button appears. One click to rerun.
@@ -16,19 +17,21 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 Browser (xterm.js + Tab UI)
     ↕ WebSocket /ws (JSON, tab-aware)
 Hub Server (:8000)
-    ↕ PTY × N (local commands)
-    ↕ WebSocket /attach (agent protocol)
-Agent on Server B
-    ↕ PTY × M (remote commands)
+    ├─ PTY × N (local commands)
+    ├─ HTTP API (/info, /health)
+    └─ WebSocket /attach (agent protocol)
+          ↕
+Agent on Server B ──── PTY × M (remote commands)
+Agent on Server C ──── PTY × K (remote commands)
 ```
 
 ### Components
 
 | File | Role |
 |------|------|
-| `main.go` | HTTP server, routing, `-c` multi-command flag, `--attach` agent mode |
+| `main.go` | HTTP server, routing, `-c` multi-command flag, `--attach` agent mode, `-daemon` mode |
 | `hub.go` | WebSocket hub — browser clients, local PTYs, remote agents, dynamic tab management |
-| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub, streams I/O |
+| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub, streams I/O, auto-reconnect |
 | `pty_manager.go` | PTY lifecycle — spawns command, reads output, writes input, resize, restart |
 | `output_buffer.go` | Ring buffer (default 10 MB) — stores output for session replay on reconnect |
 | `static/index.html` | Single-page frontend — xterm.js terminals, tab bar, WebSocket client, mobile helper |
@@ -36,17 +39,41 @@ Agent on Server B
 
 ### WebSocket Protocol
 
-All messages are JSON with `{ type, data?, cols?, rows?, tab }`.
+All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote? }`.
+
+**Browser ↔ Hub:**
 
 | Direction | Type | Description |
 |-----------|------|-------------|
-| Server → Client | `tabs` | Tab list sent on connect (`tabs`: string array of command names) |
+| Server → Client | `tabs` | Tab list on connect (`tabs`: array of `{name, remote}`) |
+| Server → Client | `tab_added` | New remote tab added dynamically (`data`: name, `tab`: index, `remote`: true) |
 | Client → Server | `input` | Keyboard input (`data`: string, `tab`: int) |
 | Client → Server | `resize` | Terminal size change (`cols`, `rows`: uint16, `tab`: int) |
 | Client → Server | `restart` | Restart the PTY command (`tab`: int) |
 | Server → Client | `output` | Terminal output (`data`: string, `tab`: int) |
-| Server → Client | `status` | Process status (`data`: `"running"` / `"exited"` / `"restarted"`, `tab`: int) |
+| Server → Client | `status` | Process status (`data`: `"running"` / `"exited"` / `"restarted"` / `"disconnected"`, `tab`: int) |
 | Server → Client | `error` | Error message (`data`: string, `tab`: int) |
+
+**Agent → Hub:**
+
+| Direction | Type | Description |
+|-----------|------|-------------|
+| Agent → Hub | `register` | Registration with tab list (`tabs`: array of `{name}`) |
+| Agent → Hub | `output` | PTY output from agent command (`data`: string, `tab`: agent-relative index) |
+| Agent → Hub | `status` | Status update (`data`: `"running"` / `"exited"` / `"restarted"`, `tab`: agent-relative index) |
+| Hub → Agent | `input` | Forwarded keyboard input (`data`: string, `tab`: agent-relative index) |
+| Hub → Agent | `resize` | Forwarded terminal resize (`cols`, `rows`: uint16, `tab`: agent-relative index) |
+| Hub → Agent | `restart` | Forwarded restart command (`tab`: agent-relative index) |
+
+### HTTP API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Web UI (embedded static files) |
+| `GET /info` | JSON: `{hostname, workspace, commands}` |
+| `GET /health` | JSON: `{status, tabs, running}` — tab count and running process count |
+| `WS /ws` | Browser WebSocket endpoint |
+| `WS /attach` | Agent WebSocket endpoint |
 
 ## Quick Start
 
@@ -65,6 +92,9 @@ go build -o rc .
 
 # Custom port
 ./rc --port 9000 -c "copilot --yolo" -c "bash"
+
+# Run as background daemon (logs to /tmp/rc-<pid>.log)
+./rc -daemon -c "bash"
 ```
 
 Open `http://localhost:8000` in your browser.
@@ -83,7 +113,9 @@ Run commands on server B and monitor them from server A's browser:
 
 Server B spawns the commands locally and streams them to server A. The browser on server A automatically gets new tabs for server B's commands (`serverB: htop`, `serverB: tail -f ...`). You can type, resize, and restart — all routed back to server B.
 
-Multiple agents can attach to the same hub simultaneously.
+Multiple agents can attach to the same hub simultaneously. If an agent disconnects, its tabs show a "disconnected" status and reconnect automatically (retry every 3 seconds).
+
+The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can also use explicit URLs (`ws://`, `wss://`, `http://`, `https://`).
 
 ## CLI Options
 
@@ -92,6 +124,7 @@ Multiple agents can attach to the same hub simultaneously.
 | `--port` | `8000` | HTTP server port |
 | `-c` | `copilot` or `bash` | Command to run (repeatable for multi-tab, e.g. `-c "bash" -c "htop"`) |
 | `--attach` | — | Attach to a remote hub (e.g. `--attach serverA:8000`). Runs in agent mode. |
+| `--daemon` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
 | `--command` | — | Legacy single-command flag (use `-c` instead) |
 | `--cols` | `120` | Initial terminal columns |
 | `--rows` | `30` | Initial terminal rows |
@@ -108,6 +141,9 @@ Multiple agents can attach to the same hub simultaneously.
 ./service.sh start
 ./service.sh stop
 ./service.sh restart
+
+# Status with health check
+./service.sh status
 
 # Rebuild: stops service → go build → restarts service
 ./service.sh build
@@ -133,16 +169,29 @@ Example: `RC_PORT=9000 RC_COMMAND="bash" ./service.sh install`
 
 ## Frontend Features
 
-- **Tab bar** — Multiple commands shown as tabs; click to switch. Status dot per tab (green=running, red=exited).
+- **Tab bar** — Multiple commands shown as tabs; click to switch. Hidden with single tab.
+  - 🟢 Green dot — running
+  - 🔴 Red dot — exited
+  - 🟡 Yellow pulsing dot — awaiting input (idle for 3+ seconds)
+  - ⚫ Gray dot — agent disconnected
+  - **REMOTE** badge — italic purple styling for remote agent tabs
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
-- **Restart overlay** — appears when active tab's command exits; click to restart
+- **Header** — Shows logo, hostname, working directory, and command list
+- **Restart bar** — appears when active tab's command exits; click to restart
 - **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
 - **Floating helper button** (mobile/touch) — bottom-right button opens panel:
   - Arrow keys
   - Special: Tab, Esc, Enter, Space
   - Ctrl+C (interrupt)
   - Ctrl toggle (activate, type a letter, sends Ctrl+letter)
+
+## Releases
+
+Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc/releases) page for:
+
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
 
 ## Dependencies
 
