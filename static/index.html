@@ -60,6 +60,13 @@
     }
     .tab-item .tab-dot.exited { background: #f38ba8; }
     .tab-item .tab-dot.disconnected { background: #6c7086; }
+    .tab-item.remote { font-style: italic; }
+    .tab-item.remote.active { color: #cba6f7; border-bottom-color: #cba6f7; }
+    .tab-badge {
+      font-size: 9px; color: #1e1e2e; background: #cba6f7; border-radius: 4px;
+      padding: 1px 5px; margin-left: 4px; font-style: normal;
+      text-transform: uppercase; letter-spacing: 0.3px; line-height: 1.2;
+    }
 
     #terminal-container { flex: 1; padding: 4px; position: relative; }
     .term-wrapper { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; display: none; }
@@ -246,7 +253,7 @@
       scrollback: 50000,
     };
 
-    function ensureTab(idx, name) {
+    function ensureTab(idx, name, remote) {
       if (tabs[idx]) return; // Already exists
 
       // Fill gaps if needed
@@ -269,13 +276,24 @@
 
       // Tab bar item
       const tabEl = document.createElement('div');
-      tabEl.className = 'tab-item' + (isFirst ? ' active' : '');
+      tabEl.className = 'tab-item' + (isFirst ? ' active' : '') + (remote ? ' remote' : '');
       const dot = document.createElement('span');
       dot.className = 'tab-dot';
-      const label = document.createElement('span');
-      label.textContent = name;
-      tabEl.appendChild(dot);
-      tabEl.appendChild(label);
+      if (remote) {
+        const badge = document.createElement('span');
+        badge.className = 'tab-badge';
+        badge.textContent = 'remote';
+        tabEl.appendChild(dot);
+        const label = document.createElement('span');
+        label.textContent = name;
+        tabEl.appendChild(label);
+        tabEl.appendChild(badge);
+      } else {
+        const label = document.createElement('span');
+        label.textContent = name;
+        tabEl.appendChild(dot);
+        tabEl.appendChild(label);
+      }
       tabEl.addEventListener('click', () => switchTab(idx));
       tabBar.appendChild(tabEl);
 
@@ -298,7 +316,7 @@
         }
       });
 
-      tabs[idx] = { name, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl };
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl };
 
       // Show tab bar when more than 1 tab
       if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
@@ -309,8 +327,13 @@
       }
     }
 
-    function initTabs(tabNames) {
-      tabNames.forEach((name, i) => ensureTab(i, name));
+    function initTabs(tabInfos) {
+      tabInfos.forEach((info, i) => {
+        // Support both {name, remote} objects and plain strings (backward compat)
+        const name = typeof info === 'string' ? info : info.name;
+        const remote = typeof info === 'object' && info.remote;
+        ensureTab(i, name, remote);
+      });
     }
 
     function switchTab(idx) {
@@ -501,7 +524,7 @@
               initTabs(msg.tabs || []);
               break;
             case 'tab_added':
-              ensureTab(msg.tab, msg.data);
+              ensureTab(msg.tab, msg.data, msg.remote);
               break;
             case 'output': {
               const t = tabs[msg.tab];

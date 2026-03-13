@@ -51,12 +51,19 @@ type Client struct {
 
 // WSMessage is the JSON message format for all WebSocket communication.
 type WSMessage struct {
-	Type string   `json:"type"`
-	Data string   `json:"data,omitempty"`
-	Cols uint16   `json:"cols,omitempty"`
-	Rows uint16   `json:"rows,omitempty"`
-	Tab  int      `json:"tab"`
-	Tabs []string `json:"tabs,omitempty"`
+	Type   string    `json:"type"`
+	Data   string    `json:"data,omitempty"`
+	Cols   uint16    `json:"cols,omitempty"`
+	Rows   uint16    `json:"rows,omitempty"`
+	Tab    int       `json:"tab"`
+	Tabs   []TabInfo `json:"tabs,omitempty"`
+	Remote bool      `json:"remote,omitempty"`
+}
+
+// TabInfo describes a tab in the 'tabs' message.
+type TabInfo struct {
+	Name   string `json:"name"`
+	Remote bool   `json:"remote,omitempty"`
 }
 
 // NewHub creates a new Hub with local PTY sessions.
@@ -77,12 +84,12 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub
 	return h
 }
 
-func (h *Hub) getTabNames() []string {
-	names := make([]string, len(h.tabs))
+func (h *Hub) getTabInfos() []TabInfo {
+	infos := make([]TabInfo, len(h.tabs))
 	for i, t := range h.tabs {
-		names[i] = t.Name
+		infos[i] = TabInfo{Name: t.Name, Remote: t.agent != nil}
 	}
-	return names
+	return infos
 }
 
 // Broadcast sends PTY output to all browser clients (for local tabs).
@@ -156,7 +163,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Atomically add client and snapshot tab state to avoid missing tab_added messages
 	h.mu.Lock()
 	h.clients[client] = true
-	tabNames := h.getTabNames()
+	tabInfos := h.getTabInfos()
 	tabCount := len(h.tabs)
 	snapshots := make([][]byte, tabCount)
 	statuses := make([]string, tabCount)
@@ -169,7 +176,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Client connected: %s (total: %d)", r.RemoteAddr, len(h.clients))
 
 	// Send tab list
-	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: tabNames})
+	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: tabInfos})
 	client.send <- tabsMsg
 
 	// Send history and status for each tab
@@ -307,9 +314,9 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	baseTab := len(h.tabs)
 	agentConn.baseTab = baseTab
-	for i, name := range regMsg.Tabs {
+	for i, ti := range regMsg.Tabs {
 		h.tabs = append(h.tabs, &TabEntry{
-			Name:     name,
+			Name:     ti.Name,
 			Buf:      NewOutputBuffer(10 * 1024 * 1024),
 			Status:   "running",
 			agent:    agentConn,
@@ -322,9 +329,9 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Agent attached from %s: %d tabs (indices %d-%d)", r.RemoteAddr, len(regMsg.Tabs), baseTab, baseTab+len(regMsg.Tabs)-1)
 
 	// Notify all browser clients of new tabs
-	for i, name := range regMsg.Tabs {
+	for i, ti := range regMsg.Tabs {
 		tabIdx := baseTab + i
-		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: name})
+		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true})
 		h.broadcastToClients(addMsg)
 	}
 

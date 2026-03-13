@@ -156,11 +156,11 @@ func (a *Agent) connect() error {
 	}()
 
 	// Register with hub
-	tabNames := make([]string, len(a.sessions))
+	tabInfos := make([]TabInfo, len(a.sessions))
 	for i, s := range a.sessions {
-		tabNames[i] = s.Name
+		tabInfos[i] = TabInfo{Name: s.Name}
 	}
-	regMsg, _ := json.Marshal(WSMessage{Type: "register", Tabs: tabNames})
+	regMsg, _ := json.Marshal(WSMessage{Type: "register", Tabs: tabInfos})
 	writeCh <- regMsg
 
 	// Send buffer snapshots and current status for each session
