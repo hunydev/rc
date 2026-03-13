@@ -74,6 +74,11 @@
       padding: 1px 5px; margin-left: 4px; font-style: normal;
       text-transform: uppercase; letter-spacing: 0.3px; line-height: 1.2;
     }
+    .tab-close {
+      display: none; margin-left: 6px; font-size: 15px; color: #6c7086;
+      cursor: pointer; padding: 0 2px; line-height: 1; font-style: normal;
+    }
+    .tab-close:hover { color: #f38ba8; }
 
     #terminal-container { flex: 1; padding: 4px; position: relative; }
     .term-wrapper { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; display: none; }
@@ -327,15 +332,24 @@
       tabEl.className = 'tab-item' + (isFirst ? ' active' : '') + (remote ? ' remote' : '');
       const dot = document.createElement('span');
       dot.className = 'tab-dot';
+      let closeEl = null;
       if (remote) {
         const badge = document.createElement('span');
         badge.className = 'tab-badge';
         badge.textContent = 'remote';
+        closeEl = document.createElement('span');
+        closeEl.className = 'tab-close';
+        closeEl.textContent = '×';
+        closeEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          sendWS({ type: 'close_tab', tab: idx });
+        });
         tabEl.appendChild(dot);
         const label = document.createElement('span');
         label.textContent = name;
         tabEl.appendChild(label);
         tabEl.appendChild(badge);
+        tabEl.appendChild(closeEl);
       } else {
         const label = document.createElement('span');
         label.textContent = name;
@@ -364,7 +378,7 @@
         }
       });
 
-      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, lastOutputAt: Date.now() };
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, lastOutputAt: Date.now() };
 
       // Show tab bar when more than 1 tab
       if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
@@ -380,12 +394,17 @@
         // Support both {name, remote} objects and plain strings (backward compat)
         const name = typeof info === 'string' ? info : info.name;
         const remote = typeof info === 'object' && info.remote;
+        const removed = typeof info === 'object' && info.removed;
+        if (removed) {
+          while (tabs.length <= i) tabs.push(null);
+          return;
+        }
         ensureTab(i, name, remote);
       });
     }
 
     function switchTab(idx) {
-      if (idx === activeTab || !tabs[idx]) return;
+      if (idx === activeTab || !tabs[idx] || tabs[idx].removed) return;
       if (tabs[activeTab]) {
         tabs[activeTab].wrapper.classList.remove('active');
         tabs[activeTab].tabEl.classList.remove('active');
@@ -646,11 +665,13 @@
                   t.dotEl.classList.remove(msg.data === 'disconnected' ? 'exited' : 'disconnected');
                   if (msg.data === 'disconnected') {
                     t.term.write('\r\n\x1b[1;33m[rc] Agent disconnected.\x1b[0m\r\n');
+                    if (t.closeEl) t.closeEl.style.display = 'inline';
                   }
                 } else if (msg.data === 'restarted' || msg.data === 'running') {
                   t.status = 'running';
                   t.lastOutputAt = Date.now();
                   t.dotEl.classList.remove('exited', 'disconnected', 'awaiting');
+                  if (t.closeEl) t.closeEl.style.display = 'none';
                   if (msg.data === 'restarted') {
                     t.term.clear();
                     t.term.reset();
@@ -661,6 +682,21 @@
                   }
                 }
                 if (msg.tab === activeTab) updateTabStatus();
+              }
+              break;
+            }
+            case 'tab_removed': {
+              const t = tabs[msg.tab];
+              if (t) {
+                t.removed = true;
+                t.tabEl.style.display = 'none';
+                t.wrapper.style.display = 'none';
+                if (msg.tab === activeTab) {
+                  const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed);
+                  if (nextIdx >= 0) switchTab(nextIdx);
+                }
+                const visibleCount = tabs.filter(tt => tt && !tt.removed).length;
+                if (visibleCount <= 1) tabBar.classList.remove('visible');
               }
               break;
             }
@@ -698,6 +734,20 @@
     document.getElementById('login-password').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') doLogin();
     });
+
+    // ───── Alt+1~9: Switch Tabs ─────
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        const n = parseInt(e.key);
+        if (n >= 1 && n <= 9) {
+          e.preventDefault();
+          e.stopPropagation();
+          const visible = [];
+          tabs.forEach((t, i) => { if (t && !t.removed) visible.push(i); });
+          if (n - 1 < visible.length) switchTab(visible[n - 1]);
+        }
+      }
+    }, true);
 
     initApp();
   </script>

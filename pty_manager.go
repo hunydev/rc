@@ -3,12 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"sync"
-	"syscall"
-
-	"github.com/creack/pty"
 )
 
 // PTYManager manages a process running in a pseudo-terminal.
@@ -19,8 +14,7 @@ type PTYManager struct {
 	initRows uint16
 	curCols  uint16
 	curRows  uint16
-	cmd      *exec.Cmd
-	ptmx     *os.File
+	session  *ptySession
 	buf      *OutputBuffer
 	outputCh chan []byte
 	mu       sync.Mutex
@@ -44,19 +38,13 @@ func NewPTYManager(name string, args []string, cols, rows uint16, buf *OutputBuf
 	return mgr, nil
 }
 
-// start spawns the process and begins reading.
 func (m *PTYManager) start(cols, rows uint16) error {
-	cmd := exec.Command(m.cmdName, m.cmdArgs...)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-
-	winSize := &pty.Winsize{Cols: cols, Rows: rows}
-	ptmx, err := pty.StartWithSize(cmd, winSize)
+	session, err := newPTYSession(m.cmdName, m.cmdArgs, cols, rows)
 	if err != nil {
 		return fmt.Errorf("pty start: %w", err)
 	}
 
-	m.cmd = cmd
-	m.ptmx = ptmx
+	m.session = session
 	m.closed = false
 	m.curCols = cols
 	m.curRows = rows
@@ -65,28 +53,19 @@ func (m *PTYManager) start(cols, rows uint16) error {
 	go m.readLoop()
 	go m.waitProcess()
 
-	log.Printf("PTY started: pid=%d, cmd=%s %v, size=%dx%d", cmd.Process.Pid, m.cmdName, m.cmdArgs, cols, rows)
+	log.Printf("PTY started: pid=%d, cmd=%s %v, size=%dx%d", session.Pid(), m.cmdName, m.cmdArgs, cols, rows)
 	return nil
 }
 
 // Restart stops the current process and starts a new one.
-// Returns the new output channel for the caller to read from.
 func (m *PTYManager) Restart() (<-chan []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Kill old process
-	if m.cmd.Process != nil {
-		_ = m.cmd.Process.Signal(syscall.SIGTERM)
-	}
-	if m.ptmx != nil {
-		_ = m.ptmx.Close()
-	}
-
-	// Clear output buffer
+	m.session.Kill()
+	m.session.Close()
 	m.buf.Reset()
 
-	// Start fresh with last known size (not initial size)
 	cols, rows := m.curCols, m.curRows
 	if cols == 0 || rows == 0 {
 		cols, rows = m.initCols, m.initRows
@@ -95,14 +74,14 @@ func (m *PTYManager) Restart() (<-chan []byte, error) {
 		return nil, fmt.Errorf("restart: %w", err)
 	}
 
-	log.Printf("PTY restarted: pid=%d", m.cmd.Process.Pid)
+	log.Printf("PTY restarted: pid=%d", m.session.Pid())
 	return m.outputCh, nil
 }
 
 func (m *PTYManager) readLoop() {
 	tmp := make([]byte, 4096)
 	for {
-		n, err := m.ptmx.Read(tmp)
+		n, err := m.session.Read(tmp)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, tmp[:n])
@@ -117,8 +96,8 @@ func (m *PTYManager) readLoop() {
 }
 
 func (m *PTYManager) waitProcess() {
-	_ = m.cmd.Wait()
-	log.Printf("PTY process exited: pid=%d", m.cmd.Process.Pid)
+	m.session.Wait()
+	log.Printf("PTY process exited: pid=%d", m.session.Pid())
 }
 
 // OutputChan returns a channel that receives PTY output.
@@ -133,7 +112,7 @@ func (m *PTYManager) Write(data []byte) error {
 	if m.closed {
 		return fmt.Errorf("pty closed")
 	}
-	_, err := m.ptmx.Write(data)
+	_, err := m.session.Write(data)
 	return err
 }
 
@@ -146,24 +125,17 @@ func (m *PTYManager) Resize(cols, rows uint16) error {
 	}
 	m.curCols = cols
 	m.curRows = rows
-	return pty.Setsize(m.ptmx, &pty.Winsize{Cols: cols, Rows: rows})
+	return m.session.Resize(cols, rows)
 }
 
 // Pid returns the process ID.
 func (m *PTYManager) Pid() int {
-	if m.cmd.Process != nil {
-		return m.cmd.Process.Pid
-	}
-	return 0
+	return m.session.Pid()
 }
 
 // IsRunning returns whether the process is still running.
 func (m *PTYManager) IsRunning() bool {
-	if m.cmd.Process == nil {
-		return false
-	}
-	err := m.cmd.Process.Signal(syscall.Signal(0))
-	return err == nil
+	return m.session.IsRunning()
 }
 
 // Close terminates the PTY and process.
@@ -174,8 +146,6 @@ func (m *PTYManager) Close() {
 		return
 	}
 	m.closed = true
-	if m.cmd.Process != nil {
-		_ = m.cmd.Process.Signal(syscall.SIGTERM)
-	}
-	_ = m.ptmx.Close()
+	m.session.Kill()
+	m.session.Close()
 }

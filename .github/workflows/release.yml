@@ -24,6 +24,11 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +45,8 @@ jobs:
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           OUTPUT="rc-${GOOS}-${GOARCH}${EXT}"
-          CGO_ENABLED=0 go build -ldflags="-s -w" -o "$OUTPUT" .
+          VERSION="${{ github.event.release.tag_name }}"
+          CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o "$OUTPUT" .
           echo "ARTIFACT=$OUTPUT" >> "$GITHUB_ENV"
 
       - name: Upload release asset

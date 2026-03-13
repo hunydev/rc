@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -86,7 +87,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Default command
 	if len(cfgCommands) == 0 {
-		cfgCommands = []string{"bash"}
+		cfgCommands = []string{defaultShell}
 	}
 
 	bufferBytes := cfgBufferSize * 1024 * 1024
@@ -220,11 +221,11 @@ func daemonize() {
 	cmd.Dir, _ = os.Getwd()
 	cmd.Env = os.Environ()
 
-	// Detach: new session, no controlling terminal
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// Detach: new session / new process group
+	cmd.SysProcAttr = daemonSysProcAttr()
 
 	// Redirect stdout/stderr to log file
-	logPath := fmt.Sprintf("/tmp/rc-%d.log", os.Getpid())
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("rc-%d.log", os.Getpid()))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		log.Fatalf("Failed to create log file: %v", err)

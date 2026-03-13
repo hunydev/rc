@@ -15,9 +15,11 @@ var upgrader = websocket.Upgrader{
 
 // TabEntry represents a terminal session, either local or remote (agent-backed).
 type TabEntry struct {
-	Name   string
-	Buf    *OutputBuffer
-	Status string // "running", "exited", "disconnected"
+	Name    string
+	Remote  bool
+	Removed bool
+	Buf     *OutputBuffer
+	Status  string // "running", "exited", "disconnected"
 
 	// For local tabs (nil for remote tabs)
 	PtyMgr *PTYManager
@@ -62,8 +64,9 @@ type WSMessage struct {
 
 // TabInfo describes a tab in the 'tabs' message.
 type TabInfo struct {
-	Name   string `json:"name"`
-	Remote bool   `json:"remote,omitempty"`
+	Name    string `json:"name"`
+	Remote  bool   `json:"remote,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
 }
 
 // NewHub creates a new Hub with local PTY sessions.
@@ -87,7 +90,7 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub
 func (h *Hub) getTabInfos() []TabInfo {
 	infos := make([]TabInfo, len(h.tabs))
 	for i, t := range h.tabs {
-		infos[i] = TabInfo{Name: t.Name, Remote: t.agent != nil}
+		infos[i] = TabInfo{Name: t.Name, Remote: t.Remote, Removed: t.Removed}
 	}
 	return infos
 }
@@ -168,6 +171,9 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	snapshots := make([][]byte, tabCount)
 	statuses := make([]string, tabCount)
 	for i := 0; i < tabCount; i++ {
+		if h.tabs[i].Removed {
+			continue
+		}
 		snapshots[i] = h.tabs[i].Buf.Snapshot()
 		statuses[i] = h.tabs[i].Status
 	}
@@ -181,6 +187,9 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Send history and status for each tab
 	for i := 0; i < tabCount; i++ {
+		if statuses[i] == "" {
+			continue // removed tab
+		}
 		if len(snapshots[i]) > 0 {
 			histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(snapshots[i]), Tab: i})
 			client.send <- histMsg
@@ -277,6 +286,17 @@ func (h *Hub) readPump(c *Client) {
 				default:
 				}
 			}
+		case "close_tab":
+			h.mu.Lock()
+			if entry.Remote && entry.Status == "disconnected" && !entry.Removed {
+				entry.Removed = true
+				h.mu.Unlock()
+				rmMsg, _ := json.Marshal(WSMessage{Type: "tab_removed", Tab: tab})
+				h.broadcastToClients(rmMsg)
+				log.Printf("Tab %d closed by client", tab)
+			} else {
+				h.mu.Unlock()
+			}
 		}
 	}
 }
@@ -317,6 +337,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	for i, ti := range regMsg.Tabs {
 		h.tabs = append(h.tabs, &TabEntry{
 			Name:     ti.Name,
+			Remote:   true,
 			Buf:      NewOutputBuffer(10 * 1024 * 1024),
 			Status:   "running",
 			agent:    agentConn,
