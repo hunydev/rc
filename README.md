@@ -38,6 +38,10 @@ Agent on Server C ──── PTY × K (remote commands)
 | `auth.go` | Bearer token authentication for HTTP and WebSocket endpoints |
 | `agent.go` | Agent mode — spawns local PTYs, connects to remote hub (with auth), streams I/O, auto-reconnect |
 | `pty_manager.go` | PTY lifecycle — spawns command, reads output, writes input, resize, restart |
+| `pty_session_unix.go` | Unix PTY session using [creack/pty](https://github.com/creack/pty) |
+| `pty_session_windows.go` | Windows PTY session using [ConPTY](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session) |
+| `platform_unix.go` | Unix defaults — `bash` shell, `Setsid` daemon detach |
+| `platform_windows.go` | Windows defaults — `cmd.exe` shell, `CREATE_NEW_PROCESS_GROUP` daemon |
 | `output_buffer.go` | Ring buffer (configurable, default 10 MB) — stores output for session replay on reconnect |
 | `static/index.html` | Single-page frontend — xterm.js terminals, tab bar, WebSocket client, mobile helper |
 | `service.sh` | systemd service management — install/uninstall/start/stop/build (stop→build→restart) |
@@ -55,8 +59,10 @@ All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote? }`.
 | Client → Server | `input` | Keyboard input (`data`: string, `tab`: int) |
 | Client → Server | `resize` | Terminal size change (`cols`, `rows`: uint16, `tab`: int) |
 | Client → Server | `restart` | Restart the PTY command (`tab`: int) |
+| Client → Server | `close_tab` | Close a disconnected remote tab (`tab`: int) |
 | Server → Client | `output` | Terminal output (`data`: string, `tab`: int) |
 | Server → Client | `status` | Process status (`data`: `"running"` / `"exited"` / `"restarted"` / `"disconnected"`, `tab`: int) |
+| Server → Client | `tab_removed` | Remote tab was closed (`tab`: int) |
 | Server → Client | `error` | Error message (`data`: string, `tab`: int) |
 
 **Agent → Hub:**
@@ -133,7 +139,7 @@ Run commands on server B and monitor them from server A's browser:
 
 Server B spawns the commands locally and streams them to server A. The browser on server A automatically gets new tabs for server B's commands (`serverB: htop`, `serverB: tail -f ...`). You can type, resize, and restart — all routed back to server B.
 
-Multiple agents can attach to the same hub simultaneously. If an agent disconnects, its tabs show a "disconnected" status and reconnect automatically (retry every 3 seconds).
+Multiple agents can attach to the same hub simultaneously. If an agent disconnects, its tabs show a "disconnected" status and reconnect automatically (retry every 3 seconds). Disconnected agent tabs can be closed by clicking the **×** button; when the agent reconnects it creates fresh tabs.
 
 The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can also use explicit URLs (`ws://`, `wss://`, `http://`, `https://`).
 
@@ -200,6 +206,8 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - 🟡 Yellow pulsing dot — awaiting input (idle for 3+ seconds)
   - ⚫ Gray dot — agent disconnected
   - **REMOTE** badge — italic purple styling for remote agent tabs
+  - **×** close button — appears on disconnected remote tabs to remove them
+  - **Alt+1~9** — keyboard shortcut to switch tabs by position
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
 - **Login page** — automatic login overlay when password is set; token stored in session
@@ -218,6 +226,19 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 
 - Linux (amd64, arm64)
 - macOS (amd64, arm64)
+- Windows (amd64, arm64)
+
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.0`).
+
+## Platform Notes
+
+| Platform | PTY Backend | Default Shell | Daemon |
+|----------|-------------|---------------|--------|
+| Linux | [creack/pty](https://github.com/creack/pty) | `bash` | ✅ `Setsid` |
+| macOS | [creack/pty](https://github.com/creack/pty) | `bash` | ✅ `Setsid` |
+| Windows | [ConPTY](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session) | `cmd.exe` | ⚠️ Best-effort |
+
+Windows requires **Windows 10 1809+** for ConPTY support. All core features (browser remote, multi-tab, auth, agent mode) work across all platforms.
 
 ## Dependencies
 
