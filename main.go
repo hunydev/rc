@@ -18,9 +18,20 @@ import (
 //go:embed static
 var staticFiles embed.FS
 
+// multiFlag allows repeated -c flags
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
+func (m *multiFlag) Set(value string) error {
+	*m = append(*m, value)
+	return nil
+}
+
 func main() {
 	port := flag.Int("port", 8000, "HTTP server port")
-	command := flag.String("command", "", "Command to run in PTY (e.g. 'copilot --yolo')")
+	command := flag.String("command", "", "Command to run in PTY (single command, for backwards compat)")
+	var commands multiFlag
+	flag.Var(&commands, "c", "Command to run in PTY (repeatable, e.g. -c 'bash' -c 'htop')")
 	cols := flag.Int("cols", 120, "Initial terminal columns")
 	rows := flag.Int("rows", 30, "Initial terminal rows")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
@@ -32,63 +43,91 @@ func main() {
 		return
 	}
 
-	if *command == "" {
-		if _, err := lookPath("copilot"); err == nil {
-			*command = "copilot"
+	// Resolve command list: -c flags take priority, then --command, then default
+	if len(commands) == 0 {
+		if *command != "" {
+			commands = []string{*command}
 		} else {
-			*command = "bash"
+			if _, err := lookPath("copilot"); err == nil {
+				commands = []string{"copilot"}
+			} else {
+				commands = []string{"bash"}
+			}
 		}
 	}
 
-	parts := strings.Fields(*command)
-	cmdName := parts[0]
-	var cmdArgs []string
-	if len(parts) > 1 {
-		cmdArgs = parts[1:]
+	// Create sessions (one per command)
+	type session struct {
+		Name   string
+		PtyMgr *PTYManager
+		Buf    *OutputBuffer
+	}
+	sessions := make([]session, len(commands))
+
+	for i, cmd := range commands {
+		parts := strings.Fields(cmd)
+		cmdName := parts[0]
+		var cmdArgs []string
+		if len(parts) > 1 {
+			cmdArgs = parts[1:]
+		}
+
+		buf := NewOutputBuffer(10 * 1024 * 1024)
+		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(*cols), uint16(*rows), buf)
+		if err != nil {
+			log.Fatalf("Failed to start PTY for '%s': %v", cmd, err)
+		}
+		sessions[i] = session{Name: cmd, PtyMgr: ptyMgr, Buf: buf}
+	}
+	defer func() {
+		for _, s := range sessions {
+			s.PtyMgr.Close()
+		}
+	}()
+
+	// Build tab info for Hub
+	tabNames := make([]string, len(sessions))
+	ptyMgrs := make([]*PTYManager, len(sessions))
+	bufs := make([]*OutputBuffer, len(sessions))
+	for i, s := range sessions {
+		tabNames[i] = s.Name
+		ptyMgrs[i] = s.PtyMgr
+		bufs[i] = s.Buf
 	}
 
-	// Create output buffer (10MB)
-	buf := NewOutputBuffer(10 * 1024 * 1024)
-
-	// Create PTY manager
-	ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(*cols), uint16(*rows), buf)
-	if err != nil {
-		log.Fatalf("Failed to start PTY: %v", err)
+	hub := NewHub(ptyMgrs, bufs, tabNames)
+	for i, s := range sessions {
+		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}
-	defer ptyMgr.Close()
-
-	// Create WebSocket hub
-	hub := NewHub(ptyMgr, buf)
-
-	// Start broadcasting PTY output to WebSocket clients
-	hub.StartOutputPump(ptyMgr.OutputChan())
 
 	// Routes
 	mux := http.NewServeMux()
 
-	// Static files
 	staticFS, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
-	// WebSocket
 	mux.HandleFunc("/ws", hub.HandleWebSocket)
 
-	// Server info (hostname, workspace, command) for header display
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"hostname":  hostname,
 			"workspace": workspace,
-			"command":   *command,
+			"commands":  commands,
 		})
 	})
 
-	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","pid":%d,"running":%t}`, ptyMgr.Pid(), ptyMgr.IsRunning())
+		running := true
+		for _, s := range sessions {
+			if !s.PtyMgr.IsRunning() {
+				running = false
+			}
+		}
+		fmt.Fprintf(w, `{"status":"ok","tabs":%d,"running":%t}`, len(sessions), running)
 	})
 
 	addr := fmt.Sprintf(":%d", *port)
@@ -100,12 +139,16 @@ func main() {
 	go func() {
 		<-sigChan
 		log.Println("Shutting down...")
-		ptyMgr.Close()
+		for _, s := range sessions {
+			s.PtyMgr.Close()
+		}
 		server.Close()
 	}()
 
-	log.Printf("🚀 rc running on http://localhost%s", addr)
-	log.Printf("📺 Command: %s %s", cmdName, strings.Join(cmdArgs, " "))
+	log.Printf("rc running on http://localhost%s", addr)
+	for i, cmd := range commands {
+		log.Printf("  Tab %d: %s", i, cmd)
+	}
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}

@@ -38,7 +38,31 @@
     .status-disconnected { background: #f38ba8; color: #1e1e2e; }
     .status-connecting { background: #f9e2af; color: #1e1e2e; }
 
-    #terminal-container { flex: 1; padding: 4px; }
+    #tab-bar {
+      display: none; /* hidden when single tab */
+      background: #181825; border-bottom: 1px solid #313244;
+      padding: 0 12px; gap: 2px; overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: none;
+    }
+    #tab-bar::-webkit-scrollbar { display: none; }
+    #tab-bar.visible { display: flex; }
+    .tab-item {
+      padding: 6px 16px; font-size: 13px; color: #6c7086; cursor: pointer;
+      border-bottom: 2px solid transparent; white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+      display: flex; align-items: center; gap: 6px;
+      user-select: none; -webkit-user-select: none;
+    }
+    .tab-item:hover { color: #a6adc8; }
+    .tab-item.active { color: #89b4fa; border-bottom-color: #89b4fa; }
+    .tab-item .tab-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0;
+    }
+    .tab-item .tab-dot.exited { background: #f38ba8; }
+
+    #terminal-container { flex: 1; padding: 4px; position: relative; }
+    .term-wrapper { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; display: none; }
+    .term-wrapper.active { display: block; }
     #app { display: flex; flex-direction: column; height: 100%; }
 
     /* ───── Restart bar (bottom center, no modal) ───── */
@@ -131,10 +155,11 @@
 <body>
   <div id="app">
     <div id="header">
-      <span class="title">🖥️ rc</span>
+      <span class="title">rc</span>
       <span class="info" id="header-info"></span>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
+    <div id="tab-bar"></div>
     <div id="terminal-container"></div>
   </div>
 
@@ -159,24 +184,24 @@
   <div id="helper-panel">
     <div class="section-title">Arrow Keys</div>
     <div class="key-row">
-      <button class="key-btn" data-key="\x1b[D">←</button>
-      <button class="key-btn" data-key="\x1b[A">↑</button>
-      <button class="key-btn" data-key="\x1b[B">↓</button>
-      <button class="key-btn" data-key="\x1b[C">→</button>
+      <button class="key-btn" data-key="left">&#8592;</button>
+      <button class="key-btn" data-key="up">&#8593;</button>
+      <button class="key-btn" data-key="down">&#8595;</button>
+      <button class="key-btn" data-key="right">&#8594;</button>
     </div>
     <div class="section-title">Special Keys</div>
     <div class="key-row">
-      <button class="key-btn wide" data-key="\t">Tab</button>
-      <button class="key-btn wide" data-key="\x1b">Esc</button>
+      <button class="key-btn wide" data-key="tab">Tab</button>
+      <button class="key-btn wide" data-key="esc">Esc</button>
     </div>
     <div class="key-row">
-      <button class="key-btn wide" data-key="\r">Enter</button>
-      <button class="key-btn wide" data-key=" ">Space</button>
+      <button class="key-btn wide" data-key="enter">Enter</button>
+      <button class="key-btn wide" data-key="space">Space</button>
     </div>
     <div class="section-title">Control</div>
     <div class="key-row">
-      <button class="key-btn wide" data-key="\x03">Ctrl+C</button>
-      <button class="key-btn wide" id="ctrl-toggle">Ctrl ⏎</button>
+      <button class="key-btn wide" data-key="ctrlc">Ctrl+C</button>
+      <button class="key-btn wide" id="ctrl-toggle">Ctrl &#9166;</button>
     </div>
   </div>
 
@@ -186,6 +211,8 @@
   <script>
     const statusEl = document.getElementById('status');
     const headerInfo = document.getElementById('header-info');
+    const tabBar = document.getElementById('tab-bar');
+    const termContainer = document.getElementById('terminal-container');
     const restartBar = document.getElementById('restart-bar');
     const restartBtn = document.getElementById('restart-btn');
     const dcOverlay = document.getElementById('dc-overlay');
@@ -193,8 +220,15 @@
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
 
-    // ───── Terminal Setup ─────
-    const term = new window.Terminal({
+    // ───── Multi-Tab State ─────
+    let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl}]
+    let activeTab = 0;
+    let ws = null;
+    let reconnectTimer = null;
+    let ctrlActive = false;
+    let tabsInitialized = false;
+
+    const termOptions = {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
@@ -209,18 +243,93 @@
       },
       allowProposedApi: true,
       scrollback: 50000,
-    });
+    };
 
-    const fitAddon = new window.FitAddon.FitAddon();
-    const webLinksAddon = new window.WebLinksAddon.WebLinksAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
-    term.open(document.getElementById('terminal-container'));
-    fitAddon.fit();
+    function initTabs(tabNames) {
+      if (tabsInitialized) return;
+      tabsInitialized = true;
 
-    let ws = null;
-    let reconnectTimer = null;
-    let ctrlActive = false;
+      // Show tab bar only if multiple tabs
+      if (tabNames.length > 1) tabBar.classList.add('visible');
+
+      tabNames.forEach((name, i) => {
+        // Terminal wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'term-wrapper' + (i === 0 ? ' active' : '');
+        termContainer.appendChild(wrapper);
+
+        // Terminal instance
+        const t = new window.Terminal(termOptions);
+        const fit = new window.FitAddon.FitAddon();
+        const links = new window.WebLinksAddon.WebLinksAddon();
+        t.loadAddon(fit);
+        t.loadAddon(links);
+        t.open(wrapper);
+        fit.fit();
+
+        // Tab bar item
+        const tabEl = document.createElement('div');
+        tabEl.className = 'tab-item' + (i === 0 ? ' active' : '');
+        const dot = document.createElement('span');
+        dot.className = 'tab-dot';
+        const label = document.createElement('span');
+        label.textContent = name;
+        tabEl.appendChild(dot);
+        tabEl.appendChild(label);
+        tabEl.addEventListener('click', () => switchTab(i));
+        tabBar.appendChild(tabEl);
+
+        // Wire up terminal I/O
+        t.onData((data) => {
+          if (ctrlActive && data.length === 1) {
+            const code = data.toLowerCase().charCodeAt(0);
+            if (code >= 97 && code <= 122) {
+              sendWS({ type: 'input', data: String.fromCharCode(code - 96), tab: i });
+              deactivateCtrl();
+              return;
+            }
+          }
+          sendWS({ type: 'input', data, tab: i });
+        });
+
+        t.onResize(({ cols, rows }) => {
+          if (i === activeTab) {
+            sendWS({ type: 'resize', cols, rows, tab: i });
+          }
+        });
+
+        tabs.push({ name, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl });
+      });
+
+      // Focus first tab
+      if (tabs.length > 0) tabs[0].term.focus();
+    }
+
+    function switchTab(idx) {
+      if (idx === activeTab || idx >= tabs.length) return;
+      tabs[activeTab].wrapper.classList.remove('active');
+      tabs[activeTab].tabEl.classList.remove('active');
+      activeTab = idx;
+      tabs[idx].wrapper.classList.add('active');
+      tabs[idx].tabEl.classList.add('active');
+      tabs[idx].fitAddon.fit();
+      tabs[idx].term.focus();
+      updateTabStatus();
+      // Send resize for newly active tab
+      sendWS({ type: 'resize', cols: tabs[idx].term.cols, rows: tabs[idx].term.rows, tab: idx });
+    }
+
+    function updateTabStatus() {
+      const t = tabs[activeTab];
+      if (!t) return;
+      if (t.status === 'exited') {
+        setStatus('process exited', 'status-disconnected');
+        restartBar.classList.add('visible');
+      } else {
+        setStatus('connected', 'status-connected');
+        restartBar.classList.remove('visible');
+      }
+    }
 
     function setStatus(text, cls) {
       statusEl.textContent = text;
@@ -233,7 +342,7 @@
       }
     }
 
-    // ───── Header Info (populated from /health) ─────
+    // ───── Header Info ─────
     async function loadHeaderInfo() {
       try {
         const res = await fetch('/info');
@@ -241,77 +350,110 @@
         const parts = [];
         if (info.hostname) parts.push('<span>' + info.hostname + '</span>');
         if (info.workspace) parts.push(info.workspace);
-        if (info.command) parts.push('$ ' + info.command);
-        headerInfo.innerHTML = parts.join(' · ');
+        headerInfo.innerHTML = parts.join(' &middot; ');
       } catch (e) {
         headerInfo.textContent = '';
       }
     }
     loadHeaderInfo();
 
-    // ───── Terminal I/O ─────
-    term.onData((data) => {
-      if (ctrlActive && data.length === 1) {
-        const code = data.toLowerCase().charCodeAt(0);
-        if (code >= 97 && code <= 122) {
-          sendWS({ type: 'input', data: String.fromCharCode(code - 96) });
-          deactivateCtrl();
-          return;
-        }
-      }
-      sendWS({ type: 'input', data });
+    // ───── Resize ─────
+    window.addEventListener('resize', () => {
+      tabs.forEach((t, i) => {
+        if (i === activeTab) t.fitAddon.fit();
+      });
     });
-
-    term.onResize(({ cols, rows }) => {
-      sendWS({ type: 'resize', cols, rows });
-    });
-
-    window.addEventListener('resize', () => fitAddon.fit());
 
     // ───── Restart Button ─────
     restartBtn.addEventListener('click', () => {
-      sendWS({ type: 'restart' });
+      sendWS({ type: 'restart', tab: activeTab });
       restartBar.classList.remove('visible');
     });
 
     // ───── Floating Helper ─────
+    const keyMap = {
+      left:  '\x1b[D', up:    '\x1b[A', down:  '\x1b[B', right: '\x1b[C',
+      tab:   '\t',     esc:   '\x1b',   enter: '\r',     space: ' ',
+      ctrlc: '\x03',
+    };
+
+    let fabTouched = false;
+    helperFab.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fabTouched = true;
+      helperPanel.classList.toggle('visible');
+    }, { passive: false });
     helperFab.addEventListener('click', (e) => {
+      if (fabTouched) { fabTouched = false; return; }
       e.stopPropagation();
       helperPanel.classList.toggle('visible');
     });
 
+    document.addEventListener('touchstart', (e) => {
+      if (!helperPanel.contains(e.target) && e.target !== helperFab) {
+        helperPanel.classList.remove('visible');
+      }
+    });
     document.addEventListener('click', (e) => {
       if (!helperPanel.contains(e.target) && e.target !== helperFab) {
         helperPanel.classList.remove('visible');
       }
     });
 
+    function sendKey(keyId) {
+      const seq = keyMap[keyId];
+      if (seq) sendWS({ type: 'input', data: seq, tab: activeTab });
+    }
+
     helperPanel.querySelectorAll('button.key-btn[data-key]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      let touched = false;
+      btn.addEventListener('touchend', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        sendWS({ type: 'input', data: btn.getAttribute('data-key') });
-        term.focus();
+        touched = true;
+        btn.style.background = '#585b70';
+        setTimeout(() => btn.style.background = '', 120);
+        sendKey(btn.getAttribute('data-key'));
+        if (tabs[activeTab]) tabs[activeTab].term.focus();
+      }, { passive: false });
+      btn.addEventListener('click', (e) => {
+        if (touched) { touched = false; return; }
+        e.preventDefault();
+        e.stopPropagation();
+        sendKey(btn.getAttribute('data-key'));
+        if (tabs[activeTab]) tabs[activeTab].term.focus();
       });
     });
 
     function deactivateCtrl() {
       ctrlActive = false;
       ctrlToggle.classList.remove('active');
-      ctrlToggle.textContent = 'Ctrl ⏎';
+      ctrlToggle.textContent = 'Ctrl \u23CE';
     }
 
-    ctrlToggle.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    let ctrlTouched = false;
+    function activateOrDeactivateCtrl() {
       ctrlActive = !ctrlActive;
       if (ctrlActive) {
         ctrlToggle.classList.add('active');
-        ctrlToggle.textContent = 'Ctrl ✓';
+        ctrlToggle.textContent = 'Ctrl \u2713';
       } else {
         deactivateCtrl();
       }
-      term.focus();
+      if (tabs[activeTab]) tabs[activeTab].term.focus();
+    }
+    ctrlToggle.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ctrlTouched = true;
+      activateOrDeactivateCtrl();
+    }, { passive: false });
+    ctrlToggle.addEventListener('click', (e) => {
+      if (ctrlTouched) { ctrlTouched = false; return; }
+      e.preventDefault();
+      e.stopPropagation();
+      activateOrDeactivateCtrl();
     });
 
     // ───── WebSocket ─────
@@ -329,7 +471,10 @@
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
-        sendWS({ type: 'resize', cols: term.cols, rows: term.rows });
+        // Send resize for active tab
+        if (tabs[activeTab]) {
+          sendWS({ type: 'resize', cols: tabs[activeTab].term.cols, rows: tabs[activeTab].term.rows, tab: activeTab });
+        }
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
@@ -340,30 +485,41 @@
         try {
           const msg = JSON.parse(event.data);
           switch (msg.type) {
-            case 'output':
-              term.write(msg.data);
+            case 'tabs':
+              initTabs(msg.tabs || []);
               break;
-            case 'status':
-              if (msg.data === 'exited') {
-                setStatus('process exited', 'status-disconnected');
-                restartBar.classList.add('visible');
-              } else if (msg.data === 'restarted') {
-                setStatus('connected', 'status-connected');
-                restartBar.classList.remove('visible');
-                term.clear();
-                term.reset();
-                // Re-fit terminal and send current size to new PTY
-                setTimeout(() => {
-                  fitAddon.fit();
-                  sendWS({ type: 'resize', cols: term.cols, rows: term.rows });
-                }, 50);
-              } else if (msg.data === 'running') {
-                setStatus('connected', 'status-connected');
+            case 'output': {
+              const t = tabs[msg.tab];
+              if (t) t.term.write(msg.data);
+              break;
+            }
+            case 'status': {
+              const t = tabs[msg.tab];
+              if (t) {
+                t.status = msg.data;
+                if (msg.data === 'exited') {
+                  t.dotEl.classList.add('exited');
+                } else if (msg.data === 'restarted' || msg.data === 'running') {
+                  t.status = 'running';
+                  t.dotEl.classList.remove('exited');
+                  if (msg.data === 'restarted') {
+                    t.term.clear();
+                    t.term.reset();
+                    setTimeout(() => {
+                      t.fitAddon.fit();
+                      sendWS({ type: 'resize', cols: t.term.cols, rows: t.term.rows, tab: msg.tab });
+                    }, 50);
+                  }
+                }
+                if (msg.tab === activeTab) updateTabStatus();
               }
               break;
-            case 'error':
-              term.write('\r\n\x1b[1;31m[rc] Error: ' + msg.data + '\x1b[0m\r\n');
+            }
+            case 'error': {
+              const t = tabs[msg.tab];
+              if (t) t.term.write('\r\n\x1b[1;31m[rc] Error: ' + msg.data + '\x1b[0m\r\n');
               break;
+            }
           }
         } catch (e) {
           console.error('WS parse error:', e);
@@ -380,7 +536,6 @@
     }
 
     connectWS();
-    term.focus();
   </script>
 </body>
 </html>

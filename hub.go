@@ -14,11 +14,13 @@ var upgrader = websocket.Upgrader{
 }
 
 // Hub manages WebSocket clients and broadcasts PTY output to all connected clients.
+// Supports multiple tabs, each with its own PTYManager and OutputBuffer.
 type Hub struct {
-	ptyMgr  *PTYManager
-	buf     *OutputBuffer
-	clients map[*Client]bool
-	mu      sync.RWMutex
+	ptyMgrs  []*PTYManager
+	bufs     []*OutputBuffer
+	tabNames []string
+	clients  map[*Client]bool
+	mu       sync.RWMutex
 }
 
 // Client represents a connected WebSocket client.
@@ -29,24 +31,27 @@ type Client struct {
 
 // WSMessage is the JSON message format between browser and server.
 type WSMessage struct {
-	Type string `json:"type"`
-	Data string `json:"data,omitempty"`
-	Cols uint16 `json:"cols,omitempty"`
-	Rows uint16 `json:"rows,omitempty"`
+	Type string   `json:"type"`
+	Data string   `json:"data,omitempty"`
+	Cols uint16   `json:"cols,omitempty"`
+	Rows uint16   `json:"rows,omitempty"`
+	Tab  int      `json:"tab"`
+	Tabs []string `json:"tabs,omitempty"`
 }
 
-// NewHub creates a new Hub.
-func NewHub(ptyMgr *PTYManager, buf *OutputBuffer) *Hub {
+// NewHub creates a new Hub with multiple PTY sessions.
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub {
 	return &Hub{
-		ptyMgr:  ptyMgr,
-		buf:     buf,
-		clients: make(map[*Client]bool),
+		ptyMgrs:  ptyMgrs,
+		bufs:     bufs,
+		tabNames: tabNames,
+		clients:  make(map[*Client]bool),
 	}
 }
 
-// Broadcast sends data to all connected clients.
-func (h *Hub) Broadcast(data []byte) {
-	msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(data)})
+// Broadcast sends data to all connected clients for a specific tab.
+func (h *Hub) Broadcast(tab int, data []byte) {
+	msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(data), Tab: tab})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
@@ -57,9 +62,9 @@ func (h *Hub) Broadcast(data []byte) {
 	}
 }
 
-// BroadcastStatus sends a status message to all connected clients.
-func (h *Hub) BroadcastStatus(status string) {
-	msg, _ := json.Marshal(WSMessage{Type: "status", Data: status})
+// BroadcastStatus sends a status message to all connected clients for a specific tab.
+func (h *Hub) BroadcastStatus(tab int, status string) {
+	msg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: tab})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
@@ -71,14 +76,13 @@ func (h *Hub) BroadcastStatus(status string) {
 }
 
 // StartOutputPump reads from the PTY output channel and broadcasts to clients.
-// When the PTY process exits, it broadcasts the exit status.
-func (h *Hub) StartOutputPump(outputCh <-chan []byte) {
+func (h *Hub) StartOutputPump(tab int, outputCh <-chan []byte) {
 	go func() {
 		for data := range outputCh {
-			h.Broadcast(data)
+			h.Broadcast(tab, data)
 		}
-		h.Broadcast([]byte("\r\n\033[1;31m[rc] Process exited.\033[0m\r\n"))
-		h.BroadcastStatus("exited")
+		h.Broadcast(tab, []byte("\r\n\033[1;31m[rc] Process exited.\033[0m\r\n"))
+		h.BroadcastStatus(tab, "exited")
 	}()
 }
 
@@ -101,21 +105,24 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Client connected: %s (total: %d)", r.RemoteAddr, len(h.clients))
 
-	// Send session history
-	history := h.buf.Snapshot()
-	if len(history) > 0 {
-		histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(history)})
-		client.send <- histMsg
-	}
+	// Send tab list
+	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: h.tabNames})
+	client.send <- tabsMsg
 
-	// Send process status
-	statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: func() string {
-		if h.ptyMgr.IsRunning() {
-			return "running"
+	// Send session history and status for each tab
+	for i := range h.ptyMgrs {
+		history := h.bufs[i].Snapshot()
+		if len(history) > 0 {
+			histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(history), Tab: i})
+			client.send <- histMsg
 		}
-		return "exited"
-	}()})
-	client.send <- statusMsg
+		status := "exited"
+		if h.ptyMgrs[i].IsRunning() {
+			status = "running"
+		}
+		statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: i})
+		client.send <- statusMsg
+	}
 
 	go h.writePump(client)
 	go h.readPump(client)
@@ -151,27 +158,33 @@ func (h *Hub) readPump(c *Client) {
 			continue
 		}
 
+		// Validate tab index
+		tab := msg.Tab
+		if tab < 0 || tab >= len(h.ptyMgrs) {
+			tab = 0
+		}
+
 		switch msg.Type {
 		case "input":
-			if err := h.ptyMgr.Write([]byte(msg.Data)); err != nil {
-				log.Printf("PTY write error: %v", err)
+			if err := h.ptyMgrs[tab].Write([]byte(msg.Data)); err != nil {
+				log.Printf("PTY write error (tab %d): %v", tab, err)
 			}
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
-				if err := h.ptyMgr.Resize(msg.Cols, msg.Rows); err != nil {
-					log.Printf("PTY resize error: %v", err)
+				if err := h.ptyMgrs[tab].Resize(msg.Cols, msg.Rows); err != nil {
+					log.Printf("PTY resize error (tab %d): %v", tab, err)
 				}
 			}
 		case "restart":
-			outputCh, err := h.ptyMgr.Restart()
+			outputCh, err := h.ptyMgrs[tab].Restart()
 			if err != nil {
-				log.Printf("PTY restart error: %v", err)
-				errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error()})
+				log.Printf("PTY restart error (tab %d): %v", tab, err)
+				errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
 				c.send <- errMsg
 				break
 			}
-			h.BroadcastStatus("restarted")
-			h.StartOutputPump(outputCh)
+			h.BroadcastStatus(tab, "restarted")
+			h.StartOutputPump(tab, outputCh)
 		}
 	}
 }
