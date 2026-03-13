@@ -93,7 +93,16 @@ func RunAgent(target string, commands []string, cols, rows uint16) {
 
 func buildAttachURL(target string) string {
 	if !strings.Contains(target, "://") {
-		target = "ws://" + target
+		// Auto-detect: if port is 443 or absent (implies default HTTPS), use wss
+		host := target
+		scheme := "wss"
+		if idx := strings.LastIndex(host, ":"); idx != -1 {
+			port := host[idx+1:]
+			if port != "443" {
+				scheme = "ws"
+			}
+		}
+		target = scheme + "://" + target
 	}
 	u, err := url.Parse(target)
 	if err != nil {
