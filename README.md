@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" width="80" alt="rc" />
+</p>
+
 # rc — Remote Control
 
 A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) and streams it to a web browser in real-time via WebSocket. Close the browser, come back later — output is preserved and the process keeps running.
