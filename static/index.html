@@ -57,6 +57,12 @@
     .tab-item.active { color: #89b4fa; border-bottom-color: #89b4fa; }
     .tab-item .tab-dot {
       width: 6px; height: 6px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .tab-item .tab-dot.awaiting { background: #f9e2af; animation: pulse-await 1.5s ease-in-out infinite; }
+    @keyframes pulse-await {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
     .tab-item .tab-dot.exited { background: #f38ba8; }
     .tab-item .tab-dot.disconnected { background: #6c7086; }
@@ -316,7 +322,7 @@
         }
       });
 
-      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl };
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, lastOutputAt: Date.now() };
 
       // Show tab bar when more than 1 tab
       if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
@@ -528,7 +534,11 @@
               break;
             case 'output': {
               const t = tabs[msg.tab];
-              if (t) t.term.write(msg.data);
+              if (t) {
+                t.term.write(msg.data);
+                t.lastOutputAt = Date.now();
+                t.dotEl.classList.remove('awaiting');
+              }
               break;
             }
             case 'status': {
@@ -536,6 +546,7 @@
               if (t) {
                 t.status = msg.data;
                 if (msg.data === 'exited' || msg.data === 'disconnected') {
+                  t.dotEl.classList.remove('awaiting');
                   t.dotEl.classList.add(msg.data === 'disconnected' ? 'disconnected' : 'exited');
                   t.dotEl.classList.remove(msg.data === 'disconnected' ? 'exited' : 'disconnected');
                   if (msg.data === 'disconnected') {
@@ -543,7 +554,8 @@
                   }
                 } else if (msg.data === 'restarted' || msg.data === 'running') {
                   t.status = 'running';
-                  t.dotEl.classList.remove('exited', 'disconnected');
+                  t.lastOutputAt = Date.now();
+                  t.dotEl.classList.remove('exited', 'disconnected', 'awaiting');
                   if (msg.data === 'restarted') {
                     t.term.clear();
                     t.term.reset();
@@ -576,6 +588,16 @@
 
       ws.onerror = () => ws.close();
     }
+
+    const IDLE_THRESHOLD = 3000; // 3 seconds of silence → "awaiting input"
+    setInterval(() => {
+      const now = Date.now();
+      for (const t of Object.values(tabs)) {
+        if (t.status === 'running' && now - t.lastOutputAt > IDLE_THRESHOLD) {
+          t.dotEl.classList.add('awaiting');
+        }
+      }
+    }, 1000);
 
     connectWS();
   </script>
