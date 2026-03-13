@@ -13,23 +13,43 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// Hub manages WebSocket clients and broadcasts PTY output to all connected clients.
-// Supports multiple tabs, each with its own PTYManager and OutputBuffer.
-type Hub struct {
-	ptyMgrs  []*PTYManager
-	bufs     []*OutputBuffer
-	tabNames []string
-	clients  map[*Client]bool
-	mu       sync.RWMutex
+// TabEntry represents a terminal session, either local or remote (agent-backed).
+type TabEntry struct {
+	Name   string
+	Buf    *OutputBuffer
+	Status string // "running", "exited", "disconnected"
+
+	// For local tabs (nil for remote tabs)
+	PtyMgr *PTYManager
+
+	// For remote tabs (nil for local tabs)
+	agent    *AgentConn
+	agentTab int // tab index relative to the agent
 }
 
-// Client represents a connected WebSocket client.
+// AgentConn represents a connected remote agent.
+type AgentConn struct {
+	conn    *websocket.Conn
+	send    chan []byte
+	baseTab int // first global tab index for this agent
+	numTabs int // number of tabs this agent owns
+}
+
+// Hub manages browser clients, local PTYs, and remote agents.
+type Hub struct {
+	tabs    []*TabEntry
+	clients map[*Client]bool
+	agents  map[*AgentConn]bool
+	mu      sync.RWMutex
+}
+
+// Client represents a connected browser WebSocket client.
 type Client struct {
 	conn *websocket.Conn
 	send chan []byte
 }
 
-// WSMessage is the JSON message format between browser and server.
+// WSMessage is the JSON message format for all WebSocket communication.
 type WSMessage struct {
 	Type string   `json:"type"`
 	Data string   `json:"data,omitempty"`
@@ -39,17 +59,33 @@ type WSMessage struct {
 	Tabs []string `json:"tabs,omitempty"`
 }
 
-// NewHub creates a new Hub with multiple PTY sessions.
+// NewHub creates a new Hub with local PTY sessions.
 func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub {
-	return &Hub{
-		ptyMgrs:  ptyMgrs,
-		bufs:     bufs,
-		tabNames: tabNames,
-		clients:  make(map[*Client]bool),
+	h := &Hub{
+		tabs:    make([]*TabEntry, len(ptyMgrs)),
+		clients: make(map[*Client]bool),
+		agents:  make(map[*AgentConn]bool),
 	}
+	for i := range ptyMgrs {
+		h.tabs[i] = &TabEntry{
+			Name:   tabNames[i],
+			Buf:    bufs[i],
+			Status: "running",
+			PtyMgr: ptyMgrs[i],
+		}
+	}
+	return h
 }
 
-// Broadcast sends data to all connected clients for a specific tab.
+func (h *Hub) getTabNames() []string {
+	names := make([]string, len(h.tabs))
+	for i, t := range h.tabs {
+		names[i] = t.Name
+	}
+	return names
+}
+
+// Broadcast sends PTY output to all browser clients (for local tabs).
 func (h *Hub) Broadcast(tab int, data []byte) {
 	msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(data), Tab: tab})
 	h.mu.RLock()
@@ -62,8 +98,14 @@ func (h *Hub) Broadcast(tab int, data []byte) {
 	}
 }
 
-// BroadcastStatus sends a status message to all connected clients for a specific tab.
+// BroadcastStatus sends a status update for a tab to all browser clients.
 func (h *Hub) BroadcastStatus(tab int, status string) {
+	h.mu.Lock()
+	if tab >= 0 && tab < len(h.tabs) {
+		h.tabs[tab].Status = status
+	}
+	h.mu.Unlock()
+
 	msg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: tab})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -75,7 +117,19 @@ func (h *Hub) BroadcastStatus(tab int, status string) {
 	}
 }
 
-// StartOutputPump reads from the PTY output channel and broadcasts to clients.
+// broadcastToClients sends a raw JSON message to all browser clients.
+func (h *Hub) broadcastToClients(msg []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for client := range h.clients {
+		select {
+		case client.send <- msg:
+		default:
+		}
+	}
+}
+
+// StartOutputPump reads from a local PTY's output channel and broadcasts to clients.
 func (h *Hub) StartOutputPump(tab int, outputCh <-chan []byte) {
 	go func() {
 		for data := range outputCh {
@@ -86,7 +140,7 @@ func (h *Hub) StartOutputPump(tab int, outputCh <-chan []byte) {
 	}()
 }
 
-// HandleWebSocket handles new WebSocket connections.
+// HandleWebSocket handles browser WebSocket connections.
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -99,28 +153,32 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send: make(chan []byte, 256),
 	}
 
+	// Atomically add client and snapshot tab state to avoid missing tab_added messages
 	h.mu.Lock()
 	h.clients[client] = true
+	tabNames := h.getTabNames()
+	tabCount := len(h.tabs)
+	snapshots := make([][]byte, tabCount)
+	statuses := make([]string, tabCount)
+	for i := 0; i < tabCount; i++ {
+		snapshots[i] = h.tabs[i].Buf.Snapshot()
+		statuses[i] = h.tabs[i].Status
+	}
 	h.mu.Unlock()
 
 	log.Printf("Client connected: %s (total: %d)", r.RemoteAddr, len(h.clients))
 
 	// Send tab list
-	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: h.tabNames})
+	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: tabNames})
 	client.send <- tabsMsg
 
-	// Send session history and status for each tab
-	for i := range h.ptyMgrs {
-		history := h.bufs[i].Snapshot()
-		if len(history) > 0 {
-			histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(history), Tab: i})
+	// Send history and status for each tab
+	for i := 0; i < tabCount; i++ {
+		if len(snapshots[i]) > 0 {
+			histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(snapshots[i]), Tab: i})
 			client.send <- histMsg
 		}
-		status := "exited"
-		if h.ptyMgrs[i].IsRunning() {
-			status = "running"
-		}
-		statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: i})
+		statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: statuses[i], Tab: i})
 		client.send <- statusMsg
 	}
 
@@ -158,33 +216,183 @@ func (h *Hub) readPump(c *Client) {
 			continue
 		}
 
-		// Validate tab index
+		h.mu.RLock()
 		tab := msg.Tab
-		if tab < 0 || tab >= len(h.ptyMgrs) {
-			tab = 0
+		if tab < 0 || tab >= len(h.tabs) {
+			h.mu.RUnlock()
+			continue
 		}
+		entry := h.tabs[tab]
+		h.mu.RUnlock()
 
 		switch msg.Type {
 		case "input":
-			if err := h.ptyMgrs[tab].Write([]byte(msg.Data)); err != nil {
-				log.Printf("PTY write error (tab %d): %v", tab, err)
+			if entry.PtyMgr != nil {
+				if err := entry.PtyMgr.Write([]byte(msg.Data)); err != nil {
+					log.Printf("PTY write error (tab %d): %v", tab, err)
+				}
+			} else if entry.agent != nil {
+				fwd, _ := json.Marshal(WSMessage{Type: "input", Data: msg.Data, Tab: entry.agentTab})
+				select {
+				case entry.agent.send <- fwd:
+				default:
+				}
 			}
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
-				if err := h.ptyMgrs[tab].Resize(msg.Cols, msg.Rows); err != nil {
-					log.Printf("PTY resize error (tab %d): %v", tab, err)
+				if entry.PtyMgr != nil {
+					if err := entry.PtyMgr.Resize(msg.Cols, msg.Rows); err != nil {
+						log.Printf("PTY resize error (tab %d): %v", tab, err)
+					}
+				} else if entry.agent != nil {
+					fwd, _ := json.Marshal(WSMessage{Type: "resize", Cols: msg.Cols, Rows: msg.Rows, Tab: entry.agentTab})
+					select {
+					case entry.agent.send <- fwd:
+					default:
+					}
 				}
 			}
 		case "restart":
-			outputCh, err := h.ptyMgrs[tab].Restart()
-			if err != nil {
-				log.Printf("PTY restart error (tab %d): %v", tab, err)
-				errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
-				c.send <- errMsg
-				break
+			if entry.PtyMgr != nil {
+				outputCh, err := entry.PtyMgr.Restart()
+				if err != nil {
+					log.Printf("PTY restart error (tab %d): %v", tab, err)
+					errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
+					c.send <- errMsg
+					break
+				}
+				h.BroadcastStatus(tab, "restarted")
+				h.StartOutputPump(tab, outputCh)
+			} else if entry.agent != nil {
+				fwd, _ := json.Marshal(WSMessage{Type: "restart", Tab: entry.agentTab})
+				select {
+				case entry.agent.send <- fwd:
+				default:
+				}
 			}
-			h.BroadcastStatus(tab, "restarted")
-			h.StartOutputPump(tab, outputCh)
+		}
+	}
+}
+
+// HandleAttach handles agent WebSocket connections from remote rc instances.
+func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Agent upgrade error: %v", err)
+		return
+	}
+
+	// Read registration message
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		log.Printf("Agent registration error: %v", err)
+		conn.Close()
+		return
+	}
+
+	var regMsg WSMessage
+	if err := json.Unmarshal(raw, &regMsg); err != nil || regMsg.Type != "register" {
+		log.Printf("Agent invalid registration")
+		conn.Close()
+		return
+	}
+
+	agentConn := &AgentConn{
+		conn:    conn,
+		send:    make(chan []byte, 256),
+		numTabs: len(regMsg.Tabs),
+	}
+
+	// Create tab entries for agent's commands
+	h.mu.Lock()
+	baseTab := len(h.tabs)
+	agentConn.baseTab = baseTab
+	for i, name := range regMsg.Tabs {
+		h.tabs = append(h.tabs, &TabEntry{
+			Name:     name,
+			Buf:      NewOutputBuffer(10 * 1024 * 1024),
+			Status:   "running",
+			agent:    agentConn,
+			agentTab: i,
+		})
+	}
+	h.agents[agentConn] = true
+	h.mu.Unlock()
+
+	log.Printf("Agent attached from %s: %d tabs (indices %d-%d)", r.RemoteAddr, len(regMsg.Tabs), baseTab, baseTab+len(regMsg.Tabs)-1)
+
+	// Notify all browser clients of new tabs
+	for i, name := range regMsg.Tabs {
+		tabIdx := baseTab + i
+		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: name})
+		h.broadcastToClients(addMsg)
+	}
+
+	// Agent writer goroutine
+	go func() {
+		defer conn.Close()
+		for msg := range agentConn.send {
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Cleanup on agent disconnect
+	defer func() {
+		h.mu.Lock()
+		for i := baseTab; i < baseTab+agentConn.numTabs && i < len(h.tabs); i++ {
+			h.tabs[i].Status = "disconnected"
+			h.tabs[i].agent = nil
+		}
+		delete(h.agents, agentConn)
+		h.mu.Unlock()
+
+		close(agentConn.send)
+		conn.Close()
+
+		for i := 0; i < agentConn.numTabs; i++ {
+			h.BroadcastStatus(baseTab+i, "disconnected")
+		}
+		log.Printf("Agent disconnected (tabs %d-%d)", baseTab, baseTab+agentConn.numTabs-1)
+	}()
+
+	// Read messages from agent (output, status, error)
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		var msg WSMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
+		}
+
+		// Map agent-relative tab index to global tab index
+		if msg.Tab < 0 || msg.Tab >= agentConn.numTabs {
+			continue
+		}
+		globalTab := baseTab + msg.Tab
+
+		switch msg.Type {
+		case "output":
+			// Write to hub's buffer for this tab (for browser replay)
+			h.mu.RLock()
+			if globalTab < len(h.tabs) {
+				h.tabs[globalTab].Buf.Write([]byte(msg.Data))
+			}
+			h.mu.RUnlock()
+			// Broadcast to browsers
+			outMsg, _ := json.Marshal(WSMessage{Type: "output", Data: msg.Data, Tab: globalTab})
+			h.broadcastToClients(outMsg)
+
+		case "status":
+			h.BroadcastStatus(globalTab, msg.Data)
+
+		case "error":
+			errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: msg.Data, Tab: globalTab})
+			h.broadcastToClients(errMsg)
 		}
 	}
 }

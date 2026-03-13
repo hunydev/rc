@@ -14,18 +14,21 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 
 ```
 Browser (xterm.js + Tab UI)
-    ↕ WebSocket (JSON, tab-aware)
-HTTP Server (:8000)
-    ↕ PTY × N (one per command)
-Command 1, Command 2, ...
+    ↕ WebSocket /ws (JSON, tab-aware)
+Hub Server (:8000)
+    ↕ PTY × N (local commands)
+    ↕ WebSocket /attach (agent protocol)
+Agent on Server B
+    ↕ PTY × M (remote commands)
 ```
 
 ### Components
 
 | File | Role |
 |------|------|
-| `main.go` | HTTP server, routing, `-c` multi-command flag, signal handling |
-| `hub.go` | WebSocket hub — manages clients, routes messages per tab, broadcasts PTY output |
+| `main.go` | HTTP server, routing, `-c` multi-command flag, `--attach` agent mode |
+| `hub.go` | WebSocket hub — browser clients, local PTYs, remote agents, dynamic tab management |
+| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub, streams I/O |
 | `pty_manager.go` | PTY lifecycle — spawns command, reads output, writes input, resize, restart |
 | `output_buffer.go` | Ring buffer (default 10 MB) — stores output for session replay on reconnect |
 | `static/index.html` | Single-page frontend — xterm.js terminals, tab bar, WebSocket client, mobile helper |
@@ -66,12 +69,29 @@ go build -o rc .
 
 Open `http://localhost:8000` in your browser.
 
+### Remote Attach (Agent Mode)
+
+Run commands on server B and monitor them from server A's browser:
+
+```bash
+# Server A (hub) — running normally
+./rc -c "bash"
+
+# Server B (agent) — attach to server A
+./rc --attach serverA:8000 -c "htop" -c "tail -f /var/log/syslog"
+```
+
+Server B spawns the commands locally and streams them to server A. The browser on server A automatically gets new tabs for server B's commands (`serverB: htop`, `serverB: tail -f ...`). You can type, resize, and restart — all routed back to server B.
+
+Multiple agents can attach to the same hub simultaneously.
+
 ## CLI Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | `8000` | HTTP server port |
 | `-c` | `copilot` or `bash` | Command to run (repeatable for multi-tab, e.g. `-c "bash" -c "htop"`) |
+| `--attach` | — | Attach to a remote hub (e.g. `--attach serverA:8000`). Runs in agent mode. |
 | `--command` | — | Legacy single-command flag (use `-c` instead) |
 | `--cols` | `120` | Initial terminal columns |
 | `--rows` | `30` | Initial terminal rows |

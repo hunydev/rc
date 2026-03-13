@@ -59,6 +59,7 @@
       width: 6px; height: 6px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0;
     }
     .tab-item .tab-dot.exited { background: #f38ba8; }
+    .tab-item .tab-dot.disconnected { background: #6c7086; }
 
     #terminal-container { flex: 1; padding: 4px; position: relative; }
     .term-wrapper { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; display: none; }
@@ -245,77 +246,85 @@
       scrollback: 50000,
     };
 
-    function initTabs(tabNames) {
-      if (tabsInitialized) return;
-      tabsInitialized = true;
+    function ensureTab(idx, name) {
+      if (tabs[idx]) return; // Already exists
 
-      // Show tab bar only if multiple tabs
-      if (tabNames.length > 1) tabBar.classList.add('visible');
+      // Fill gaps if needed
+      while (tabs.length < idx) tabs.push(null);
 
-      tabNames.forEach((name, i) => {
-        // Terminal wrapper
-        const wrapper = document.createElement('div');
-        wrapper.className = 'term-wrapper' + (i === 0 ? ' active' : '');
-        termContainer.appendChild(wrapper);
+      // Terminal wrapper
+      const isFirst = tabs.filter(Boolean).length === 0;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'term-wrapper' + (isFirst ? ' active' : '');
+      termContainer.appendChild(wrapper);
 
-        // Terminal instance
-        const t = new window.Terminal(termOptions);
-        const fit = new window.FitAddon.FitAddon();
-        const links = new window.WebLinksAddon.WebLinksAddon();
-        t.loadAddon(fit);
-        t.loadAddon(links);
-        t.open(wrapper);
-        fit.fit();
+      // Terminal instance
+      const t = new window.Terminal(termOptions);
+      const fit = new window.FitAddon.FitAddon();
+      const links = new window.WebLinksAddon.WebLinksAddon();
+      t.loadAddon(fit);
+      t.loadAddon(links);
+      t.open(wrapper);
+      if (isFirst || idx === activeTab) fit.fit();
 
-        // Tab bar item
-        const tabEl = document.createElement('div');
-        tabEl.className = 'tab-item' + (i === 0 ? ' active' : '');
-        const dot = document.createElement('span');
-        dot.className = 'tab-dot';
-        const label = document.createElement('span');
-        label.textContent = name;
-        tabEl.appendChild(dot);
-        tabEl.appendChild(label);
-        tabEl.addEventListener('click', () => switchTab(i));
-        tabBar.appendChild(tabEl);
+      // Tab bar item
+      const tabEl = document.createElement('div');
+      tabEl.className = 'tab-item' + (isFirst ? ' active' : '');
+      const dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      const label = document.createElement('span');
+      label.textContent = name;
+      tabEl.appendChild(dot);
+      tabEl.appendChild(label);
+      tabEl.addEventListener('click', () => switchTab(idx));
+      tabBar.appendChild(tabEl);
 
-        // Wire up terminal I/O
-        t.onData((data) => {
-          if (ctrlActive && data.length === 1) {
-            const code = data.toLowerCase().charCodeAt(0);
-            if (code >= 97 && code <= 122) {
-              sendWS({ type: 'input', data: String.fromCharCode(code - 96), tab: i });
-              deactivateCtrl();
-              return;
-            }
+      // Wire up terminal I/O
+      t.onData((data) => {
+        if (ctrlActive && data.length === 1) {
+          const code = data.toLowerCase().charCodeAt(0);
+          if (code >= 97 && code <= 122) {
+            sendWS({ type: 'input', data: String.fromCharCode(code - 96), tab: idx });
+            deactivateCtrl();
+            return;
           }
-          sendWS({ type: 'input', data, tab: i });
-        });
-
-        t.onResize(({ cols, rows }) => {
-          if (i === activeTab) {
-            sendWS({ type: 'resize', cols, rows, tab: i });
-          }
-        });
-
-        tabs.push({ name, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl });
+        }
+        sendWS({ type: 'input', data, tab: idx });
       });
 
-      // Focus first tab
-      if (tabs.length > 0) tabs[0].term.focus();
+      t.onResize(({ cols, rows }) => {
+        if (idx === activeTab) {
+          sendWS({ type: 'resize', cols, rows, tab: idx });
+        }
+      });
+
+      tabs[idx] = { name, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl };
+
+      // Show tab bar when more than 1 tab
+      if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
+
+      if (isFirst) {
+        activeTab = idx;
+        t.focus();
+      }
+    }
+
+    function initTabs(tabNames) {
+      tabNames.forEach((name, i) => ensureTab(i, name));
     }
 
     function switchTab(idx) {
-      if (idx === activeTab || idx >= tabs.length) return;
-      tabs[activeTab].wrapper.classList.remove('active');
-      tabs[activeTab].tabEl.classList.remove('active');
+      if (idx === activeTab || !tabs[idx]) return;
+      if (tabs[activeTab]) {
+        tabs[activeTab].wrapper.classList.remove('active');
+        tabs[activeTab].tabEl.classList.remove('active');
+      }
       activeTab = idx;
       tabs[idx].wrapper.classList.add('active');
       tabs[idx].tabEl.classList.add('active');
       tabs[idx].fitAddon.fit();
       tabs[idx].term.focus();
       updateTabStatus();
-      // Send resize for newly active tab
       sendWS({ type: 'resize', cols: tabs[idx].term.cols, rows: tabs[idx].term.rows, tab: idx });
     }
 
@@ -325,6 +334,9 @@
       if (t.status === 'exited') {
         setStatus('process exited', 'status-disconnected');
         restartBar.classList.add('visible');
+      } else if (t.status === 'disconnected') {
+        setStatus('agent disconnected', 'status-disconnected');
+        restartBar.classList.remove('visible');
       } else {
         setStatus('connected', 'status-connected');
         restartBar.classList.remove('visible');
@@ -488,6 +500,9 @@
             case 'tabs':
               initTabs(msg.tabs || []);
               break;
+            case 'tab_added':
+              ensureTab(msg.tab, msg.data);
+              break;
             case 'output': {
               const t = tabs[msg.tab];
               if (t) t.term.write(msg.data);
@@ -497,11 +512,15 @@
               const t = tabs[msg.tab];
               if (t) {
                 t.status = msg.data;
-                if (msg.data === 'exited') {
-                  t.dotEl.classList.add('exited');
+                if (msg.data === 'exited' || msg.data === 'disconnected') {
+                  t.dotEl.classList.add(msg.data === 'disconnected' ? 'disconnected' : 'exited');
+                  t.dotEl.classList.remove(msg.data === 'disconnected' ? 'exited' : 'disconnected');
+                  if (msg.data === 'disconnected') {
+                    t.term.write('\r\n\x1b[1;33m[rc] Agent disconnected.\x1b[0m\r\n');
+                  }
                 } else if (msg.data === 'restarted' || msg.data === 'running') {
                   t.status = 'running';
-                  t.dotEl.classList.remove('exited');
+                  t.dotEl.classList.remove('exited', 'disconnected');
                   if (msg.data === 'restarted') {
                     t.term.clear();
                     t.term.reset();

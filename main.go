@@ -30,6 +30,7 @@ func (m *multiFlag) Set(value string) error {
 func main() {
 	port := flag.Int("port", 8000, "HTTP server port")
 	command := flag.String("command", "", "Command to run in PTY (single command, for backwards compat)")
+	attach := flag.String("attach", "", "Attach to remote rc hub (e.g. 'serverA:8000')")
 	var commands multiFlag
 	flag.Var(&commands, "c", "Command to run in PTY (repeatable, e.g. -c 'bash' -c 'htop')")
 	cols := flag.Int("cols", 120, "Initial terminal columns")
@@ -54,6 +55,12 @@ func main() {
 				commands = []string{"bash"}
 			}
 		}
+	}
+
+	// Agent mode: attach to a remote hub instead of running a server
+	if *attach != "" {
+		RunAgent(*attach, commands, uint16(*cols), uint16(*rows))
+		return
 	}
 
 	// Create sessions (one per command)
@@ -107,6 +114,7 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
 	mux.HandleFunc("/ws", hub.HandleWebSocket)
+	mux.HandleFunc("/attach", hub.HandleAttach)
 
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
@@ -121,13 +129,16 @@ func main() {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		running := true
-		for _, s := range sessions {
-			if !s.PtyMgr.IsRunning() {
-				running = false
+		hub.mu.RLock()
+		totalTabs := len(hub.tabs)
+		running := 0
+		for _, t := range hub.tabs {
+			if t.Status == "running" {
+				running++
 			}
 		}
-		fmt.Fprintf(w, `{"status":"ok","tabs":%d,"running":%t}`, len(sessions), running)
+		hub.mu.RUnlock()
+		fmt.Fprintf(w, `{"status":"ok","tabs":%d,"running":%d}`, totalTabs, running)
 	})
 
 	addr := fmt.Sprintf(":%d", *port)
