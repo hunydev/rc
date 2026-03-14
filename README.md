@@ -232,6 +232,11 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **×** close button — appears on disconnected remote tabs to remove them
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
+  - **Drag-and-drop** — reorder tabs by dragging; order saved to localStorage per browser
+- **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
+  - Multiple tabs can be stacked vertically in the split area
+  - Click **✕** on a split tab header to unsplit and return it to the tab bar
+  - On narrow screens (≤ 768px), the split pane becomes a slide-out drawer toggled by a floating button
 - **Copy on select** — selecting text in the terminal automatically copies to clipboard
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
@@ -239,7 +244,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
 - **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
-- **Floating helper button** (mobile/touch) — bottom-right button opens panel without triggering virtual keyboard:
+- **Floating helper button** (mobile/touch) — bottom-right SVG keyboard icon opens panel without triggering virtual keyboard:
   - Arrow keys
   - Special: Tab, Esc, Enter, Space
   - Ctrl+C (interrupt)
@@ -253,7 +258,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.2`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.0`).
 
 ## Platform Notes
 
