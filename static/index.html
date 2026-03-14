@@ -256,6 +256,60 @@
     }
     .login-box .login-submit:hover { background: #74c7ec; }
     #login-error { display: none; color: #f38ba8; font-size: 12px; margin-top: 8px; }
+
+    /* ───── Upload ───── */
+    #upload-btn {
+      display: none; background: none; border: 1px solid #45475a; border-radius: 6px;
+      color: #bac2de; padding: 2px 8px; font-size: 12px; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0; line-height: 1;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    #upload-btn:hover { background: #313244; border-color: #585b70; }
+    #upload-btn.visible { display: inline-flex; align-items: center; gap: 4px; }
+
+    #upload-modal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 200;
+      justify-content: center; align-items: center;
+    }
+    #upload-modal.visible { display: flex; }
+    .upload-box {
+      background: #181825; padding: 24px 28px; border-radius: 12px;
+      border: 1px solid #313244; width: 380px; max-width: 90vw;
+    }
+    .upload-box h3 { color: #89b4fa; margin: 0 0 16px; font-size: 16px; }
+    .upload-box .upload-drop {
+      border: 2px dashed #45475a; border-radius: 8px; padding: 24px;
+      text-align: center; color: #6c7086; font-size: 13px; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s; margin-bottom: 12px;
+    }
+    .upload-box .upload-drop:hover { border-color: #89b4fa; background: rgba(137,180,250,0.05); }
+    .upload-box .upload-drop.dragover { border-color: #89b4fa; background: rgba(137,180,250,0.1); }
+    .upload-box .upload-progress {
+      display: none; margin-bottom: 12px;
+    }
+    .upload-box .upload-progress .bar-bg {
+      height: 6px; background: #313244; border-radius: 3px; overflow: hidden;
+    }
+    .upload-box .upload-progress .bar-fill {
+      height: 100%; background: #89b4fa; border-radius: 3px;
+      width: 0%; transition: width 0.2s;
+    }
+    .upload-box .upload-progress .bar-label {
+      font-size: 12px; color: #a6adc8; margin-top: 4px; text-align: center;
+    }
+    .upload-box .upload-result {
+      display: none; font-size: 13px; padding: 12px; border-radius: 8px;
+      margin-bottom: 12px; word-break: break-all;
+    }
+    .upload-box .upload-result.success { background: rgba(166,227,161,0.1); color: #a6e3a1; }
+    .upload-box .upload-result.error { background: rgba(243,139,168,0.1); color: #f38ba8; }
+    .upload-box .upload-close {
+      width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #45475a; background: #313244; color: #cdd6f4;
+      font-size: 13px; cursor: pointer;
+    }
+    .upload-box .upload-close:hover { background: #45475a; }
   </style>
 </head>
 <body>
@@ -264,6 +318,7 @@
       <img src="logo.svg" alt="rc" style="height:18px;width:18px;margin-right:6px;vertical-align:middle;">
       <span class="title">rc</span>
       <span class="info" id="header-info"></span>
+      <button id="upload-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload</button>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
     <div id="tab-bar"></div>
@@ -297,6 +352,23 @@
       <input type="password" id="login-password" placeholder="Password">
       <button class="login-submit" id="login-btn">Login</button>
       <p id="login-error">Invalid password</p>
+    </div>
+  </div>
+
+  <!-- Upload Modal -->
+  <div id="upload-modal">
+    <div class="upload-box">
+      <h3>Upload File</h3>
+      <div class="upload-drop" id="upload-drop">
+        Click to select a file or drag &amp; drop here
+        <input type="file" id="upload-file" style="display:none">
+      </div>
+      <div class="upload-progress" id="upload-progress">
+        <div class="bar-bg"><div class="bar-fill" id="upload-bar"></div></div>
+        <div class="bar-label" id="upload-label">Uploading...</div>
+      </div>
+      <div class="upload-result" id="upload-result"></div>
+      <button class="upload-close" id="upload-close">Close</button>
     </div>
   </div>
 
@@ -348,6 +420,15 @@
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
     const pasteBtn = document.getElementById('paste-btn');
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadModal = document.getElementById('upload-modal');
+    const uploadDrop = document.getElementById('upload-drop');
+    const uploadFile = document.getElementById('upload-file');
+    const uploadProgress = document.getElementById('upload-progress');
+    const uploadBar = document.getElementById('upload-bar');
+    const uploadLabel = document.getElementById('upload-label');
+    const uploadResult = document.getElementById('upload-result');
+    const uploadClose = document.getElementById('upload-close');
 
     // ───── Multi-Tab State ─────
     let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta, split, ...}]
@@ -760,6 +841,7 @@
         const info = await res.json();
         hubInfo = info;
         updateHeaderForTab();
+        if (info.upload) uploadBtn.classList.add('visible');
       } catch (e) {
         headerInfo.textContent = '';
       }
@@ -960,6 +1042,91 @@
       navigator.clipboard.readText().then(text => {
         if (text) sendWS({ type: 'input', data: text, tab: activeTab });
       }).catch(() => {});
+    }
+
+    // ───── Upload ─────
+    function resetUploadModal() {
+      uploadDrop.style.display = '';
+      uploadProgress.style.display = 'none';
+      uploadResult.style.display = 'none';
+      uploadResult.className = 'upload-result';
+      uploadResult.textContent = '';
+      uploadBar.style.width = '0%';
+      uploadLabel.textContent = 'Uploading...';
+      uploadFile.value = '';
+    }
+
+    uploadBtn.addEventListener('click', () => {
+      resetUploadModal();
+      uploadModal.classList.add('visible');
+    });
+
+    uploadClose.addEventListener('click', () => {
+      uploadModal.classList.remove('visible');
+    });
+
+    uploadModal.addEventListener('click', (e) => {
+      if (e.target === uploadModal) uploadModal.classList.remove('visible');
+    });
+
+    uploadDrop.addEventListener('click', () => uploadFile.click());
+    uploadDrop.addEventListener('dragover', (e) => { e.preventDefault(); uploadDrop.classList.add('dragover'); });
+    uploadDrop.addEventListener('dragleave', () => uploadDrop.classList.remove('dragover'));
+    uploadDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadDrop.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) doUpload(e.dataTransfer.files[0]);
+    });
+    uploadFile.addEventListener('change', () => {
+      if (uploadFile.files.length > 0) doUpload(uploadFile.files[0]);
+    });
+
+    function doUpload(file) {
+      uploadDrop.style.display = 'none';
+      uploadProgress.style.display = 'block';
+      uploadLabel.textContent = 'Uploading ' + file.name + '...';
+
+      const form = new FormData();
+      form.append('file', file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', routePrefix + '/upload');
+      if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          uploadBar.style.width = pct + '%';
+          uploadLabel.textContent = 'Uploading ' + file.name + '... ' + pct + '%';
+        }
+      });
+
+      xhr.onload = () => {
+        uploadProgress.style.display = 'none';
+        uploadResult.style.display = 'block';
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status === 200) {
+            uploadResult.className = 'upload-result success';
+            uploadResult.textContent = '✓ Uploaded to ' + data.path;
+          } else {
+            uploadResult.className = 'upload-result error';
+            uploadResult.textContent = '✗ ' + (data.error || 'Upload failed');
+          }
+        } catch (e) {
+          uploadResult.className = 'upload-result error';
+          uploadResult.textContent = '✗ Upload failed (status ' + xhr.status + ')';
+        }
+      };
+
+      xhr.onerror = () => {
+        uploadProgress.style.display = 'none';
+        uploadResult.style.display = 'block';
+        uploadResult.className = 'upload-result error';
+        uploadResult.textContent = '✗ Network error';
+      };
+
+      xhr.send(form);
     }
 
     // ───── WebSocket ─────

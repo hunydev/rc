@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -37,6 +38,7 @@ var (
 	cfgNoRestart  bool
 	cfgReadonly   bool
 	cfgRoute      string
+	cfgUpload     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -73,6 +75,7 @@ func init() {
 	f.BoolVar(&cfgNoRestart, "no-restart", false, "Disable command restart after exit")
 	f.BoolVar(&cfgReadonly, "readonly", false, "Disable stdin input (output only)")
 	f.StringVar(&cfgRoute, "route", "", "URL route prefix (e.g. /myapp)")
+	f.BoolVar(&cfgUpload, "upload", false, "Enable file upload to working directory")
 }
 
 func main() {
@@ -186,6 +189,7 @@ func run(cmd *cobra.Command, args []string) error {
 			"workspace": hub.workspace,
 			"commands":  cfgCommands,
 			"route":     rp,
+			"upload":    cfgUpload,
 		})
 	}))
 
@@ -202,6 +206,10 @@ func run(cmd *cobra.Command, args []string) error {
 		hub.mu.RUnlock()
 		fmt.Fprintf(w, `{"status":"ok","tabs":%d,"running":%d}`, totalTabs, running)
 	})
+
+	if cfgUpload {
+		mux.HandleFunc(rp+"/upload", requireAuth(cfgPassword, handleUpload))
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
 	server := &http.Server{Addr: addr, Handler: mux}
@@ -267,5 +275,71 @@ func daemonize() {
 
 	fmt.Printf("rc daemon started (pid=%d, log=%s)\n", cmd.Process.Pid, logPath)
 	os.Exit(0)
+}
+
+// handleUpload handles single file upload to the working directory.
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Limit upload size to 100 MB
+	r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024)
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	// Sanitize filename: only use base name, reject path traversal
+	filename := filepath.Base(header.Filename)
+	if filename == "." || filename == "/" || filename == ".." {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid filename"})
+		return
+	}
+
+	wd, _ := os.Getwd()
+	destPath := filepath.Join(wd, filename)
+
+	// Check if file already exists — no overwrite
+	if _, err := os.Stat(destPath); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file already exists: " + filename})
+		return
+	}
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create file: " + err.Error()})
+		return
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, file)
+	if err != nil {
+		os.Remove(destPath) // cleanup partial file
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
+		return
+	}
+
+	log.Printf("File uploaded: %s (%d bytes)", destPath, written)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"path": destPath,
+		"name": filename,
+		"size": written,
+	})
 }
 
