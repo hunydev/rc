@@ -127,7 +127,8 @@ func buildAttachURL(target string) string {
 	case "https":
 		u.Scheme = "wss"
 	}
-	u.Path = "/attach"
+	// Preserve existing path as route prefix, append /attach
+	u.Path = strings.TrimRight(u.Path, "/") + "/attach"
 	return u.String()
 }
 

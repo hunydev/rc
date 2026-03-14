@@ -357,6 +357,8 @@
     let ctrlActive = false;
     let tabsInitialized = false;
     let hubInfo = {}; // {hostname, workspace} from /info
+    // Derive route prefix from current URL path (strip trailing /index.html or /)
+    const routePrefix = location.pathname.replace(/\/(?:index\.html)?$/, '');
     let splitTabs = []; // indices of tabs in split pane (display order)
     let dragSrcIdx = null; // currently dragged tab index
 
@@ -781,7 +783,7 @@
 
     async function initApp() {
       let res;
-      try { res = await fetch('/info'); } catch (e) { connectWS(); return; }
+      try { res = await fetch(routePrefix + '/info'); } catch (e) { connectWS(); return; }
       if (res.ok) {
         await loadHeaderFromInfo(res);
         connectWS();
@@ -790,7 +792,7 @@
       if (res.status === 401) {
         authRequired = true;
         if (authToken) {
-          try { res = await fetch('/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
+          try { res = await fetch(routePrefix + '/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
           if (res.ok) {
             await loadHeaderFromInfo(res);
             connectWS();
@@ -808,7 +810,7 @@
       const pwd = document.getElementById('login-password').value;
       if (!pwd) return;
       try {
-        const res = await fetch('/info', { headers: { 'Authorization': 'Bearer ' + pwd } });
+        const res = await fetch(routePrefix + '/info', { headers: { 'Authorization': 'Bearer ' + pwd } });
         if (res.ok) {
           authToken = pwd;
           authRequired = true;
@@ -972,7 +974,7 @@
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const tokenParam = authRequired && authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-      ws = new WebSocket(`${proto}//${location.host}/ws${tokenParam}`);
+      ws = new WebSocket(`${proto}//${location.host}${routePrefix}/ws${tokenParam}`);
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');

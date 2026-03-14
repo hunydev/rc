@@ -36,6 +36,7 @@ var (
 	cfgBind       string
 	cfgNoRestart  bool
 	cfgReadonly   bool
+	cfgRoute      string
 )
 
 var rootCmd = &cobra.Command{
@@ -71,6 +72,7 @@ func init() {
 	f.StringVar(&cfgBind, "bind", "0.0.0.0", "Bind address")
 	f.BoolVar(&cfgNoRestart, "no-restart", false, "Disable command restart after exit")
 	f.BoolVar(&cfgReadonly, "readonly", false, "Disable stdin input (output only)")
+	f.StringVar(&cfgRoute, "route", "", "URL route prefix (e.g. /myapp)")
 }
 
 func main() {
@@ -98,6 +100,12 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	bufferBytes := cfgBufferSize * 1024 * 1024
+
+	// Normalize route prefix: ensure leading slash, strip trailing slash
+	cfgRoute = strings.TrimRight(cfgRoute, "/")
+	if cfgRoute != "" && !strings.HasPrefix(cfgRoute, "/") {
+		cfgRoute = "/" + cfgRoute
+	}
 
 	// Agent mode: attach to a remote hub instead of running a server
 	if cfgAttach != "" {
@@ -159,23 +167,29 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Routes
 	mux := http.NewServeMux()
+	rp := cfgRoute // route prefix
 
 	staticFS, _ := fs.Sub(staticFiles, "static")
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	if rp == "" {
+		mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	} else {
+		mux.Handle(rp+"/", http.StripPrefix(rp, http.FileServer(http.FS(staticFS))))
+	}
 
-	mux.HandleFunc("/ws", requireAuth(cfgPassword, hub.HandleWebSocket))
-	mux.HandleFunc("/attach", requireAuth(cfgPassword, hub.HandleAttach))
+	mux.HandleFunc(rp+"/ws", requireAuth(cfgPassword, hub.HandleWebSocket))
+	mux.HandleFunc(rp+"/attach", requireAuth(cfgPassword, hub.HandleAttach))
 
-	mux.HandleFunc("/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(rp+"/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"hostname":  hub.hostname,
 			"workspace": hub.workspace,
 			"commands":  cfgCommands,
+			"route":     rp,
 		})
 	}))
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(rp+"/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		hub.mu.RLock()
 		totalTabs := len(hub.tabs)
@@ -204,7 +218,7 @@ func run(cmd *cobra.Command, args []string) error {
 		server.Close()
 	}()
 
-	log.Printf("rc running on http://%s", addr)
+	log.Printf("rc running on http://%s%s", addr, rp+"/")
 	for i, cmd := range cfgCommands {
 		log.Printf("  Tab %d: %s", i, cmd)
 	}
