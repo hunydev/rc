@@ -109,6 +109,9 @@ go build -o rc .
 
 # Run as background daemon (logs to /tmp/rc-<pid>.log)
 ./rc -d -c "bash"
+
+# Output-only terminal (no stdin, no restart)
+./rc --readonly --no-restart -c "tail -f /var/log/syslog"
 ```
 
 Open `http://localhost:8000` in your browser.
@@ -146,6 +149,19 @@ Multiple agents can attach to the same hub simultaneously. If an agent disconnec
 
 The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can also use explicit URLs (`ws://`, `wss://`, `http://`, `https://`).
 
+### Readonly & No-Restart
+
+These flags work **independently** on hub and agent. A hub with `--readonly` only restricts its own local tabs — agent tabs are unaffected (and vice versa).
+
+```bash
+# View-only log monitor (no input, no restart)
+./rc --readonly --no-restart -c "tail -f /var/log/syslog"
+
+# Hub allows input, but agent is readonly
+./rc -c "bash"                                        # Hub (interactive)
+./rc -a hub:8000 --readonly -c "tail -f app.log"      # Agent (view-only)
+```
+
 ## CLI Options
 
 | Flag | Short | Default | Description |
@@ -155,6 +171,8 @@ The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can a
 | `--label` | `-l` | — | Tab label (repeatable, paired with `-c`; e.g. `-c "bash" -l "dev"`) |
 | `--attach` | `-a` | — | Attach to a remote hub (e.g. `-a serverA:8000`). Runs in agent mode. |
 | `--password` | | — | Password for server access (Bearer token). Env: `RC_PASSWORD` |
+| `--no-restart` | | `false` | Disable command restart after exit (no restart bar shown) |
+| `--readonly` | | `false` | Disable stdin input (output only, view-only terminals) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
@@ -218,9 +236,9 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Session replay** — reconnecting replays all buffered output per tab
 - **Login page** — automatic login overlay when password is set; token stored in session
 - **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
-- **Restart bar** — appears when active tab's command exits; click to restart
+- **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
 - **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
-- **Floating helper button** (mobile/touch) — bottom-right button opens panel:
+- **Floating helper button** (mobile/touch) — bottom-right button opens panel without triggering virtual keyboard:
   - Arrow keys
   - Special: Tab, Esc, Enter, Space
   - Ctrl+C (interrupt)
@@ -234,7 +252,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.1`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.2`).
 
 ## Platform Notes
 
