@@ -113,9 +113,12 @@ go build -o rc .
 
 # Output-only terminal (no stdin, no restart)
 ./rc --readonly --no-restart -c "tail -f /var/log/syslog"
+
+# URL route prefix (for reverse proxy / security)
+./rc --route /myapp -c "bash"
 ```
 
-Open `http://localhost:8000` in your browser.
+Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) in your browser.
 
 ### Password Authentication
 
@@ -163,6 +166,21 @@ These flags work **independently** on hub and agent. A hub with `--readonly` onl
 ./rc -a hub:8000 --readonly -c "tail -f app.log"      # Agent (view-only)
 ```
 
+### Route Prefix
+
+Use `--route` to serve rc under a sub-path — useful for reverse proxies or security-by-obscurity.
+
+```bash
+# Hub with route prefix
+./rc --route /secret/terminal -c "bash"
+# → http://localhost:8000/secret/terminal/
+
+# Agent must include the route in the target URL
+./rc -a hub:8000/secret/terminal -c "htop"
+```
+
+All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route. Static assets (logo, favicon) use relative paths and work automatically.
+
 ## CLI Options
 
 | Flag | Short | Default | Description |
@@ -174,6 +192,7 @@ These flags work **independently** on hub and agent. A hub with `--readonly` onl
 | `--password` | | — | Password for server access (Bearer token). Env: `RC_PASSWORD` |
 | `--no-restart` | | `false` | Disable command restart after exit (no restart bar shown) |
 | `--readonly` | | `false` | Disable stdin input (output only, view-only terminals) |
+| `--route` | | — | URL route prefix (e.g. `--route /myapp` → all endpoints under `/myapp/`) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
@@ -236,6 +255,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
   - Multiple tabs can be stacked vertically in the split area
   - Click **✕** on a split tab header to unsplit and return it to the tab bar
+  - Split state persists across page reloads (saved to localStorage)
   - On narrow screens (≤ 768px), the split pane becomes a slide-out drawer toggled by a floating button
 - **Copy on select** — selecting text in the terminal automatically copies to clipboard
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
@@ -249,6 +269,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - Special: Tab, Esc, Enter, Space
   - Ctrl+C (interrupt)
   - Ctrl toggle (activate, type a letter, sends Ctrl+letter)
+  - **Clipboard paste** — reads clipboard and sends as terminal input
 
 ## Releases
 
@@ -258,7 +279,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.0`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.1`).
 
 ## Platform Notes
 
