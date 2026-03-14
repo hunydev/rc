@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -15,11 +17,15 @@ var upgrader = websocket.Upgrader{
 
 // TabEntry represents a terminal session, either local or remote (agent-backed).
 type TabEntry struct {
-	Name    string
-	Remote  bool
-	Removed bool
-	Buf     *OutputBuffer
-	Status  string // "running", "exited", "disconnected"
+	Name      string
+	Remote    bool
+	Removed   bool
+	Buf       *OutputBuffer
+	Status    string // "running", "exited", "disconnected"
+	User      string
+	Hostname  string
+	Workspace string
+	Addr      string // remote agent IP
 
 	// For local tabs (nil for remote tabs)
 	PtyMgr *PTYManager
@@ -39,10 +45,13 @@ type AgentConn struct {
 
 // Hub manages browser clients, local PTYs, and remote agents.
 type Hub struct {
-	tabs    []*TabEntry
-	clients map[*Client]bool
-	agents  map[*AgentConn]bool
-	mu      sync.RWMutex
+	tabs      []*TabEntry
+	clients   map[*Client]bool
+	agents    map[*AgentConn]bool
+	hostname  string
+	workspace string
+	user      string
+	mu        sync.RWMutex
 }
 
 // Client represents a connected browser WebSocket client.
@@ -60,28 +69,42 @@ type WSMessage struct {
 	Tab    int       `json:"tab"`
 	Tabs   []TabInfo `json:"tabs,omitempty"`
 	Remote bool      `json:"remote,omitempty"`
+	Meta   *TabInfo  `json:"meta,omitempty"`
 }
 
 // TabInfo describes a tab in the 'tabs' message.
 type TabInfo struct {
-	Name    string `json:"name"`
-	Remote  bool   `json:"remote,omitempty"`
-	Removed bool   `json:"removed,omitempty"`
+	Name      string `json:"name"`
+	Remote    bool   `json:"remote,omitempty"`
+	Removed   bool   `json:"removed,omitempty"`
+	Pid       int    `json:"pid,omitempty"`
+	User      string `json:"user,omitempty"`
+	Hostname  string `json:"hostname,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
+	Addr      string `json:"addr,omitempty"`
 }
 
 // NewHub creates a new Hub with local PTY sessions.
-func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub {
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string) *Hub {
+	hostname, _ := os.Hostname()
+	workspace, _ := os.Getwd()
 	h := &Hub{
-		tabs:    make([]*TabEntry, len(ptyMgrs)),
-		clients: make(map[*Client]bool),
-		agents:  make(map[*AgentConn]bool),
+		tabs:      make([]*TabEntry, len(ptyMgrs)),
+		clients:   make(map[*Client]bool),
+		agents:    make(map[*AgentConn]bool),
+		hostname:  hostname,
+		workspace: workspace,
+		user:      currentUser,
 	}
 	for i := range ptyMgrs {
 		h.tabs[i] = &TabEntry{
-			Name:   tabNames[i],
-			Buf:    bufs[i],
-			Status: "running",
-			PtyMgr: ptyMgrs[i],
+			Name:      tabNames[i],
+			Buf:       bufs[i],
+			Status:    "running",
+			PtyMgr:    ptyMgrs[i],
+			User:      currentUser,
+			Hostname:  hostname,
+			Workspace: workspace,
 		}
 	}
 	return h
@@ -90,7 +113,18 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string) *Hub
 func (h *Hub) getTabInfos() []TabInfo {
 	infos := make([]TabInfo, len(h.tabs))
 	for i, t := range h.tabs {
-		infos[i] = TabInfo{Name: t.Name, Remote: t.Remote, Removed: t.Removed}
+		infos[i] = TabInfo{
+			Name:      t.Name,
+			Remote:    t.Remote,
+			Removed:   t.Removed,
+			User:      t.User,
+			Hostname:  t.Hostname,
+			Workspace: t.Workspace,
+			Addr:      t.Addr,
+		}
+		if t.PtyMgr != nil {
+			infos[i].Pid = t.PtyMgr.Pid()
+		}
 	}
 	return infos
 }
@@ -331,17 +365,31 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create tab entries for agent's commands
+	agentAddr := strings.Split(r.RemoteAddr, ":")[0]
+	agentUser := regMsg.Data // agent sends "user" in Data field
+	agentHostname := ""
+	agentWorkspace := ""
+	// Parse hostname and workspace from Tabs metadata (first tab carries it)
+	if len(regMsg.Tabs) > 0 {
+		agentHostname = regMsg.Tabs[0].Hostname
+		agentWorkspace = regMsg.Tabs[0].Workspace
+	}
+
 	h.mu.Lock()
 	baseTab := len(h.tabs)
 	agentConn.baseTab = baseTab
 	for i, ti := range regMsg.Tabs {
 		h.tabs = append(h.tabs, &TabEntry{
-			Name:     ti.Name,
-			Remote:   true,
-			Buf:      NewOutputBuffer(10 * 1024 * 1024),
-			Status:   "running",
-			agent:    agentConn,
-			agentTab: i,
+			Name:      ti.Name,
+			Remote:    true,
+			Buf:       NewOutputBuffer(10 * 1024 * 1024),
+			Status:    "running",
+			agent:     agentConn,
+			agentTab:  i,
+			User:      agentUser,
+			Hostname:  agentHostname,
+			Workspace: agentWorkspace,
+			Addr:      agentAddr,
 		})
 	}
 	h.agents[agentConn] = true
@@ -352,7 +400,13 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	// Notify all browser clients of new tabs
 	for i, ti := range regMsg.Tabs {
 		tabIdx := baseTab + i
-		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true})
+		meta := &TabInfo{
+			User:      agentUser,
+			Hostname:  agentHostname,
+			Workspace: agentWorkspace,
+			Addr:      agentAddr,
+		}
+		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
 		h.broadcastToClients(addMsg)
 	}
 

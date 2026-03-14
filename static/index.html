@@ -281,12 +281,13 @@
     const ctrlToggle = document.getElementById('ctrl-toggle');
 
     // ───── Multi-Tab State ─────
-    let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl}]
+    let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta}]
     let activeTab = 0;
     let ws = null;
     let reconnectTimer = null;
     let ctrlActive = false;
     let tabsInitialized = false;
+    let hubInfo = {}; // {hostname, workspace} from /info
 
     const termOptions = {
       cursorBlink: true,
@@ -305,8 +306,9 @@
       scrollback: 50000,
     };
 
-    function ensureTab(idx, name, remote) {
+    function ensureTab(idx, name, remote, meta) {
       if (tabs[idx]) return; // Already exists
+      meta = meta || {};
 
       // Fill gaps if needed
       while (tabs.length < idx) tabs.push(null);
@@ -326,9 +328,27 @@
       t.open(wrapper);
       if (isFirst || idx === activeTab) fit.fit();
 
+      // Copy on selection
+      t.onSelectionChange(() => {
+        const sel = t.getSelection();
+        if (sel && navigator.clipboard) {
+          navigator.clipboard.writeText(sel).catch(() => {});
+        }
+      });
+
       // Tab bar item
       const tabEl = document.createElement('div');
       tabEl.className = 'tab-item' + (isFirst ? ' active' : '') + (remote ? ' remote' : '');
+
+      // Tooltip
+      const tooltipParts = [];
+      if (remote && meta.user && meta.addr) {
+        tooltipParts.push(meta.user + '@' + meta.addr);
+      } else if (meta.user) {
+        tooltipParts.push(meta.user);
+      }
+      if (meta.pid) tooltipParts.push('pid: ' + meta.pid);
+      if (tooltipParts.length) tabEl.title = tooltipParts.join(', ');
       const dot = document.createElement('span');
       dot.className = 'tab-dot';
       let closeEl = null;
@@ -374,7 +394,7 @@
         }
       });
 
-      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, lastOutputAt: Date.now() };
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, meta, lastOutputAt: Date.now() };
 
       // Show tab bar when more than 1 tab
       if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
@@ -387,7 +407,6 @@
 
     function initTabs(tabInfos) {
       tabInfos.forEach((info, i) => {
-        // Support both {name, remote} objects and plain strings (backward compat)
         const name = typeof info === 'string' ? info : info.name;
         const remote = typeof info === 'object' && info.remote;
         const removed = typeof info === 'object' && info.removed;
@@ -395,7 +414,8 @@
           while (tabs.length <= i) tabs.push(null);
           return;
         }
-        ensureTab(i, name, remote);
+        const meta = typeof info === 'object' ? info : {};
+        ensureTab(i, name, remote, meta);
       });
     }
 
@@ -411,6 +431,7 @@
       tabs[idx].fitAddon.fit();
       tabs[idx].term.focus();
       updateTabStatus();
+      updateHeaderForTab();
       sendWS({ type: 'resize', cols: tabs[idx].term.cols, rows: tabs[idx].term.rows, tab: idx });
     }
 
@@ -451,13 +472,27 @@
     async function loadHeaderFromInfo(res) {
       try {
         const info = await res.json();
-        const parts = [];
-        if (info.hostname) parts.push('<span>' + info.hostname + '</span>');
-        if (info.workspace) parts.push(info.workspace);
-        headerInfo.innerHTML = parts.join(' &middot; ');
+        hubInfo = info;
+        updateHeaderForTab();
       } catch (e) {
         headerInfo.textContent = '';
       }
+    }
+
+    function updateHeaderForTab() {
+      const t = tabs[activeTab];
+      let hostname, workspace;
+      if (t && t.meta && t.remote) {
+        hostname = t.meta.hostname || '';
+        workspace = t.meta.workspace || '';
+      } else {
+        hostname = hubInfo.hostname || '';
+        workspace = hubInfo.workspace || '';
+      }
+      const parts = [];
+      if (hostname) parts.push('<span>' + hostname + '</span>');
+      if (workspace) parts.push(workspace);
+      headerInfo.innerHTML = parts.join(' &middot; ');
     }
 
     async function initApp() {
@@ -640,7 +675,7 @@
               initTabs(msg.tabs || []);
               break;
             case 'tab_added':
-              ensureTab(msg.tab, msg.data, msg.remote);
+              ensureTab(msg.tab, msg.data, msg.remote, msg.meta || {});
               break;
             case 'output': {
               const t = tabs[msg.tab];

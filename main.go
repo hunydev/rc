@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -25,6 +26,7 @@ var version = "dev"
 var (
 	cfgPort       int
 	cfgCommands   []string
+	cfgLabels     []string
 	cfgAttach     string
 	cfgPassword   string
 	cfgCols       int
@@ -57,6 +59,7 @@ func init() {
 	f := rootCmd.Flags()
 	f.IntVarP(&cfgPort, "port", "p", 8000, "HTTP server port")
 	f.StringArrayVarP(&cfgCommands, "command", "c", nil, "Command to run (repeatable, e.g. -c bash -c htop)")
+	f.StringArrayVarP(&cfgLabels, "label", "l", nil, "Tab label (repeatable, matches -c order, e.g. -l 'My Shell')")
 	f.StringVarP(&cfgAttach, "attach", "a", "", "Attach to remote rc hub (agent mode)")
 	f.StringVar(&cfgPassword, "password", "", "Password for server access (env: RC_PASSWORD)")
 	f.IntVar(&cfgCols, "cols", 120, "Initial terminal columns")
@@ -94,7 +97,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Agent mode: attach to a remote hub instead of running a server
 	if cfgAttach != "" {
-		RunAgent(cfgAttach, cfgCommands, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes)
+		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes)
 		return nil
 	}
 
@@ -132,12 +135,20 @@ func run(cmd *cobra.Command, args []string) error {
 	ptyMgrs := make([]*PTYManager, len(sessions))
 	bufs := make([]*OutputBuffer, len(sessions))
 	for i, s := range sessions {
-		tabNames[i] = s.Name
+		if i < len(cfgLabels) && cfgLabels[i] != "" {
+			tabNames[i] = cfgLabels[i]
+		} else {
+			tabNames[i] = s.Name
+		}
 		ptyMgrs[i] = s.PtyMgr
 		bufs[i] = s.Buf
 	}
 
-	hub := NewHub(ptyMgrs, bufs, tabNames)
+	currentUser := ""
+	if u, err := user.Current(); err == nil {
+		currentUser = u.Username
+	}
+	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser)
 	for i, s := range sessions {
 		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}
@@ -151,13 +162,11 @@ func run(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/ws", requireAuth(cfgPassword, hub.HandleWebSocket))
 	mux.HandleFunc("/attach", requireAuth(cfgPassword, hub.HandleAttach))
 
-	hostname, _ := os.Hostname()
-	workspace, _ := os.Getwd()
 	mux.HandleFunc("/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"hostname":  hostname,
-			"workspace": workspace,
+			"hostname":  hub.hostname,
+			"workspace": hub.workspace,
 			"commands":  cfgCommands,
 		})
 	}))

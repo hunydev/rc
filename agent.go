@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"os/user"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,7 +32,7 @@ type agentSession struct {
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
-func RunAgent(target string, commands []string, cols, rows uint16, password string, bufferSize int) {
+func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int) {
 	hostname, _ := os.Hostname()
 
 	sessions := make([]*agentSession, len(commands))
@@ -49,7 +50,12 @@ func RunAgent(target string, commands []string, cols, rows uint16, password stri
 			log.Fatalf("Failed to start PTY for '%s': %v", cmd, err)
 		}
 
-		name := fmt.Sprintf("%s: %s", hostname, cmd)
+		var name string
+		if i < len(labels) && labels[i] != "" {
+			name = fmt.Sprintf("%s: %s", hostname, labels[i])
+		} else {
+			name = fmt.Sprintf("%s: %s", hostname, cmd)
+		}
 		sessions[i] = &agentSession{Name: name, PtyMgr: ptyMgr, Buf: buf}
 	}
 
@@ -172,11 +178,21 @@ func (a *Agent) connect() error {
 	}()
 
 	// Register with hub
+	hostname, _ := os.Hostname()
+	workspace, _ := os.Getwd()
+	currentUser := ""
+	if u, err := user.Current(); err == nil {
+		currentUser = u.Username
+	}
 	tabInfos := make([]TabInfo, len(a.sessions))
 	for i, s := range a.sessions {
-		tabInfos[i] = TabInfo{Name: s.Name}
+		tabInfos[i] = TabInfo{
+			Name:      s.Name,
+			Hostname:  hostname,
+			Workspace: workspace,
+		}
 	}
-	regMsg, _ := json.Marshal(WSMessage{Type: "register", Tabs: tabInfos})
+	regMsg, _ := json.Marshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
 	writeCh <- regMsg
 
 	// Send buffer snapshots and current status for each session
