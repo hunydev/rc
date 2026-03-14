@@ -78,10 +78,42 @@
       cursor: pointer; padding: 0 2px; line-height: 1; font-style: normal;
     }
     .tab-close:hover { color: #f38ba8; }
+    .tab-split-btn {
+      display: none; margin-left: 4px; font-size: 12px; color: #6c7086;
+      cursor: pointer; padding: 0 2px; line-height: 1; font-style: normal;
+    }
+    .tab-split-btn:hover { color: #89b4fa; }
+    .tab-item:hover .tab-split-btn { display: inline; }
+    .tab-item.active .tab-split-btn { display: none; }
+    .tab-item.dragging { opacity: 0.4; }
+    .tab-item.drag-over { border-left: 2px solid #89b4fa; }
 
-    #terminal-container { flex: 1; padding: 4px; position: relative; }
+    #main-area { display: flex; flex: 1; min-height: 0; }
+    #terminal-container { flex: 1; padding: 4px; position: relative; min-width: 0; }
     .term-wrapper { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; display: none; }
     .term-wrapper.active { display: block; }
+
+    #split-pane {
+      display: none; flex-direction: column;
+      width: 50%; border-left: 1px solid #313244;
+      min-width: 0;
+    }
+    #split-pane.visible { display: flex; }
+    .split-entry { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .split-entry + .split-entry { border-top: 1px solid #313244; }
+    .split-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 2px 10px; background: #181825; font-size: 12px; color: #a6adc8;
+      flex-shrink: 0; height: 24px; border-bottom: 1px solid #313244;
+    }
+    .split-header .split-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .split-header .split-unsplit {
+      display: none; cursor: pointer; font-size: 13px; color: #6c7086; padding: 0 2px;
+    }
+    .split-header .split-unsplit:hover { color: #f38ba8; }
+    .split-header:hover .split-unsplit { display: inline; }
+    .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; }
+    .split-terminal .term-wrapper { display: block; }
     #app { display: flex; flex-direction: column; height: 100%; }
 
     /* ───── Restart bar (bottom center, no modal) ───── */
@@ -208,7 +240,10 @@
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
     <div id="tab-bar"></div>
-    <div id="terminal-container"></div>
+    <div id="main-area">
+      <div id="terminal-container"></div>
+      <div id="split-pane"></div>
+    </div>
   </div>
 
   <!-- Restart button (inline, bottom center) -->
@@ -273,6 +308,7 @@
     const headerInfo = document.getElementById('header-info');
     const tabBar = document.getElementById('tab-bar');
     const termContainer = document.getElementById('terminal-container');
+    const splitPane = document.getElementById('split-pane');
     const restartBar = document.getElementById('restart-bar');
     const restartBtn = document.getElementById('restart-btn');
     const dcOverlay = document.getElementById('dc-overlay');
@@ -281,13 +317,15 @@
     const ctrlToggle = document.getElementById('ctrl-toggle');
 
     // ───── Multi-Tab State ─────
-    let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta}]
+    let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta, split, ...}]
     let activeTab = 0;
     let ws = null;
     let reconnectTimer = null;
     let ctrlActive = false;
     let tabsInitialized = false;
     let hubInfo = {}; // {hostname, workspace} from /info
+    let splitTabs = []; // indices of tabs in split pane (display order)
+    let dragSrcIdx = null; // currently dragged tab index
 
     const termOptions = {
       cursorBlink: true,
@@ -339,6 +377,37 @@
       // Tab bar item
       const tabEl = document.createElement('div');
       tabEl.className = 'tab-item' + (isFirst ? ' active' : '') + (remote ? ' remote' : '');
+      tabEl.draggable = true;
+      tabEl.dataset.tabIdx = idx;
+
+      // Drag-and-drop
+      tabEl.addEventListener('dragstart', (e) => {
+        dragSrcIdx = idx;
+        tabEl.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      tabEl.addEventListener('dragend', () => {
+        tabEl.classList.remove('dragging');
+        dragSrcIdx = null;
+        tabBar.querySelectorAll('.tab-item').forEach(el => el.classList.remove('drag-over'));
+        saveTabOrder();
+      });
+      tabEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragSrcIdx !== null && dragSrcIdx !== idx) tabEl.classList.add('drag-over');
+      });
+      tabEl.addEventListener('dragleave', () => tabEl.classList.remove('drag-over'));
+      tabEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        tabEl.classList.remove('drag-over');
+        if (dragSrcIdx === null || dragSrcIdx === idx) return;
+        const srcTab = tabs[dragSrcIdx];
+        if (!srcTab) return;
+        // Move srcTab's tabEl before this tabEl
+        tabBar.insertBefore(srcTab.tabEl, tabEl);
+        saveTabOrder();
+      });
 
       // Tooltip
       const tooltipParts = [];
@@ -352,6 +421,17 @@
       const dot = document.createElement('span');
       dot.className = 'tab-dot';
       let closeEl = null;
+
+      // Split-to-right button (shown on hover for non-active tabs)
+      const splitBtn = document.createElement('span');
+      splitBtn.className = 'tab-split-btn';
+      splitBtn.textContent = '⧉';
+      splitBtn.title = 'Split to right';
+      splitBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        splitToRight(idx);
+      });
+
       if (remote) {
         dot.classList.add('remote-dot');
         closeEl = document.createElement('span');
@@ -365,12 +445,14 @@
         const label = document.createElement('span');
         label.textContent = name;
         tabEl.appendChild(label);
+        tabEl.appendChild(splitBtn);
         tabEl.appendChild(closeEl);
       } else {
         const label = document.createElement('span');
         label.textContent = name;
         tabEl.appendChild(dot);
         tabEl.appendChild(label);
+        tabEl.appendChild(splitBtn);
       }
       tabEl.addEventListener('click', () => switchTab(idx));
       tabBar.appendChild(tabEl);
@@ -390,12 +472,12 @@
       });
 
       t.onResize(({ cols, rows }) => {
-        if (idx === activeTab) {
+        if (idx === activeTab || tabs[idx]?.split) {
           sendWS({ type: 'resize', cols, rows, tab: idx });
         }
       });
 
-      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, meta, lastOutputAt: Date.now() };
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, splitBtn, meta, split: false, splitEntry: null, lastOutputAt: Date.now() };
 
       // Show tab bar when more than 1 tab
       if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
@@ -418,10 +500,134 @@
         const meta = typeof info === 'object' ? info : {};
         ensureTab(i, name, remote, meta);
       });
+      loadTabOrder();
+    }
+
+    // ───── Tab Order (drag-and-drop persistence) ─────
+    function saveTabOrder() {
+      const order = [];
+      tabBar.querySelectorAll('.tab-item').forEach(el => {
+        order.push(parseInt(el.dataset.tabIdx));
+      });
+      try { localStorage.setItem('rc-tab-order', JSON.stringify(order)); } catch (e) {}
+    }
+    function loadTabOrder() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('rc-tab-order'));
+        if (!Array.isArray(saved)) return;
+        // Reorder tab bar DOM to match saved order (only for indices that exist)
+        const existing = new Set();
+        tabBar.querySelectorAll('.tab-item').forEach(el => existing.add(parseInt(el.dataset.tabIdx)));
+        saved.forEach(idx => {
+          if (existing.has(idx) && tabs[idx]) {
+            tabBar.appendChild(tabs[idx].tabEl);
+          }
+        });
+      } catch (e) {}
+    }
+
+    // ───── Split Pane ─────
+    function splitToRight(idx) {
+      const t = tabs[idx];
+      if (!t || t.split) return;
+
+      // If splitting the active tab, switch to another tab first
+      if (idx === activeTab) {
+        const other = tabs.findIndex((tab, i) => tab && !tab.split && !tab.removed && i !== idx);
+        if (other === -1) return; // can't split the only tab
+        switchTab(other);
+      }
+
+      t.split = true;
+      splitTabs.push(idx);
+
+      // Hide from tab bar
+      t.tabEl.style.display = 'none';
+
+      // Create split entry
+      const entry = document.createElement('div');
+      entry.className = 'split-entry';
+
+      const header = document.createElement('div');
+      header.className = 'split-header';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'split-name';
+      nameSpan.textContent = t.name;
+      const unsplitBtn = document.createElement('span');
+      unsplitBtn.className = 'split-unsplit';
+      unsplitBtn.textContent = '✕';
+      unsplitBtn.title = 'Unsplit';
+      unsplitBtn.addEventListener('click', () => unsplitTab(idx));
+      header.appendChild(nameSpan);
+      header.appendChild(unsplitBtn);
+
+      const termArea = document.createElement('div');
+      termArea.className = 'split-terminal';
+
+      // Move wrapper from main container to split entry
+      t.wrapper.classList.remove('active');
+      t.wrapper.style.display = '';
+      termArea.appendChild(t.wrapper);
+      t.wrapper.classList.add('active');
+
+      entry.appendChild(header);
+      entry.appendChild(termArea);
+      splitPane.appendChild(entry);
+      t.splitEntry = entry;
+
+      splitPane.classList.add('visible');
+      refitAllTerminals();
+    }
+
+    function unsplitTab(idx) {
+      const t = tabs[idx];
+      if (!t || !t.split) return;
+
+      t.split = false;
+      splitTabs = splitTabs.filter(i => i !== idx);
+
+      // Move wrapper back to main container
+      t.wrapper.classList.remove('active');
+      termContainer.appendChild(t.wrapper);
+
+      // Remove split entry
+      if (t.splitEntry) {
+        t.splitEntry.remove();
+        t.splitEntry = null;
+      }
+
+      // Show in tab bar again
+      t.tabEl.style.display = '';
+
+      // Hide split pane if empty
+      if (splitTabs.length === 0) splitPane.classList.remove('visible');
+
+      refitAllTerminals();
+    }
+
+    function refitAllTerminals() {
+      // Refit active main tab
+      const act = tabs[activeTab];
+      if (act && !act.split) {
+        setTimeout(() => {
+          act.fitAddon.fit();
+          sendWS({ type: 'resize', cols: act.term.cols, rows: act.term.rows, tab: activeTab });
+        }, 50);
+      }
+      // Refit all split tabs
+      splitTabs.forEach(idx => {
+        const t = tabs[idx];
+        if (t) {
+          setTimeout(() => {
+            t.fitAddon.fit();
+            sendWS({ type: 'resize', cols: t.term.cols, rows: t.term.rows, tab: idx });
+          }, 50);
+        }
+      });
     }
 
     function switchTab(idx) {
-      if (idx === activeTab || !tabs[idx] || tabs[idx].removed) return;
+      if (idx === activeTab || !tabs[idx] || tabs[idx].removed || tabs[idx].split) return;
       if (tabs[activeTab]) {
         tabs[activeTab].wrapper.classList.remove('active');
         tabs[activeTab].tabEl.classList.remove('active');
@@ -551,7 +757,7 @@
     // ───── Resize ─────
     window.addEventListener('resize', () => {
       tabs.forEach((t, i) => {
-        if (i === activeTab) t.fitAddon.fit();
+        if ((i === activeTab && !t.split) || t.split) t.fitAddon.fit();
       });
     });
 
@@ -733,11 +939,13 @@
             case 'tab_removed': {
               const t = tabs[msg.tab];
               if (t) {
+                // If it's a split tab, unsplit first
+                if (t.split) unsplitTab(msg.tab);
                 t.removed = true;
                 t.tabEl.style.display = 'none';
                 t.wrapper.style.display = 'none';
                 if (msg.tab === activeTab) {
-                  const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed);
+                  const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed && !tt.split);
                   if (nextIdx >= 0) switchTab(nextIdx);
                 }
                 const visibleCount = tabs.filter(tt => tt && !tt.removed).length;
@@ -787,8 +995,12 @@
         if (n >= 1 && n <= 9) {
           e.preventDefault();
           e.stopPropagation();
+          // Follow DOM order (reflects drag-and-drop reorder), exclude split/removed
           const visible = [];
-          tabs.forEach((t, i) => { if (t && !t.removed) visible.push(i); });
+          tabBar.querySelectorAll('.tab-item').forEach(el => {
+            const i = parseInt(el.dataset.tabIdx);
+            if (tabs[i] && !tabs[i].removed && !tabs[i].split) visible.push(i);
+          });
           if (n - 1 < visible.length) switchTab(visible[n - 1]);
         }
       }
