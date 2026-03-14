@@ -568,6 +568,11 @@
       ctrlc: '\x03',
     };
 
+    // Prevent touchstart on FAB and panel to stop mobile browsers
+    // from focusing the terminal textarea (which opens the virtual keyboard).
+    helperFab.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+    helperPanel.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+
     let fabTouched = false;
     helperFab.addEventListener('touchend', (e) => {
       e.preventDefault();
