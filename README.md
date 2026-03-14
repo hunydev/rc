@@ -14,78 +14,21 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 - **Distributed terminals** — Attach remote servers to a central hub with `--attach`. Monitor everything from one browser.
 - **Session persistence** — Process survives browser disconnection. Reconnect and see full history.
 - **Mobile friendly** — Floating helper keyboard for touch devices (arrow keys, Ctrl combos, Tab, Esc).
+- **File upload** — Upload files to the server's working directory from the browser (opt-in with `--upload`).
 - **Restart on exit** — When the command finishes, a restart button appears. One click to rerun.
 
 ## Architecture
 
 ```
 Browser (xterm.js + Tab UI)
-    ↕ WebSocket /ws (JSON, tab-aware)
+    ↕ WebSocket (JSON, tab-aware)
 Hub Server (:8000)
     ├─ PTY × N (local commands)
-    ├─ HTTP API (/info, /health)
     └─ WebSocket /attach (agent protocol)
           ↕
 Agent on Server B ──── PTY × M (remote commands)
 Agent on Server C ──── PTY × K (remote commands)
 ```
-
-### Components
-
-| File | Role |
-|------|------|
-| `main.go` | Cobra CLI, HTTP server, routing, auth middleware, `-c` multi-command, `-a` agent mode, `-d` daemon |
-| `hub.go` | WebSocket hub — browser clients, local PTYs, remote agents, dynamic tab management |
-| `auth.go` | Bearer token authentication for HTTP and WebSocket endpoints |
-| `agent.go` | Agent mode — spawns local PTYs, connects to remote hub (with auth), streams I/O, auto-reconnect |
-| `pty_manager.go` | PTY lifecycle — spawns command, reads output, writes input, resize, restart |
-| `pty_session_unix.go` | Unix PTY session using [creack/pty](https://github.com/creack/pty) |
-| `pty_session_windows.go` | Windows PTY session using [ConPTY](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session) |
-| `platform_unix.go` | Unix defaults — `bash` shell, `Setsid` daemon detach |
-| `platform_windows.go` | Windows defaults — `cmd.exe` shell, `CREATE_NEW_PROCESS_GROUP` daemon |
-| `output_buffer.go` | Ring buffer (configurable, default 10 MB) — stores output for session replay on reconnect |
-| `static/index.html` | Single-page frontend — xterm.js terminals, tab bar, WebSocket client, mobile helper |
-| `service.sh` | systemd service management — install/uninstall/start/stop/build (stop→build→restart) |
-
-### WebSocket Protocol
-
-All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote?, meta? }`.
-
-**Browser ↔ Hub:**
-
-| Direction | Type | Description |
-|-----------|------|-------------|
-| Server → Client | `tabs` | Tab list on connect (`tabs`: array of `{name, remote}`) |
-| Server → Client | `tab_added` | New remote tab added dynamically (`data`: name, `tab`: index, `remote`: true, `meta`: tab metadata) |
-| Client → Server | `input` | Keyboard input (`data`: string, `tab`: int) |
-| Client → Server | `resize` | Terminal size change (`cols`, `rows`: uint16, `tab`: int) |
-| Client → Server | `restart` | Restart the PTY command (`tab`: int) |
-| Client → Server | `close_tab` | Close a disconnected remote tab (`tab`: int) |
-| Server → Client | `output` | Terminal output (`data`: string, `tab`: int) |
-| Server → Client | `status` | Process status (`data`: `"running"` / `"exited"` / `"restarted"` / `"disconnected"`, `tab`: int) |
-| Server → Client | `tab_removed` | Remote tab was closed (`tab`: int) |
-| Server → Client | `error` | Error message (`data`: string, `tab`: int) |
-
-**Agent → Hub:**
-
-| Direction | Type | Description |
-|-----------|------|-------------|
-| Agent → Hub | `register` | Registration with tab list, hostname, workspace, user (`tabs`: array of `{name}`, `data`: username) |
-| Agent → Hub | `output` | PTY output from agent command (`data`: string, `tab`: agent-relative index) |
-| Agent → Hub | `status` | Status update (`data`: `"running"` / `"exited"` / `"restarted"`, `tab`: agent-relative index) |
-| Hub → Agent | `input` | Forwarded keyboard input (`data`: string, `tab`: agent-relative index) |
-| Hub → Agent | `resize` | Forwarded terminal resize (`cols`, `rows`: uint16, `tab`: agent-relative index) |
-| Hub → Agent | `restart` | Forwarded restart command (`tab`: agent-relative index) |
-
-### HTTP API
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /` | Web UI (embedded static files) |
-| `GET /info` | JSON: `{hostname, workspace, commands}` |
-| `GET /health` | JSON: `{status, tabs, running}` — tab count and running process count |
-| `WS /ws` | Browser WebSocket endpoint |
-| `WS /attach` | Agent WebSocket endpoint |
 
 ## Quick Start
 
@@ -116,6 +59,9 @@ go build -o rc .
 
 # URL route prefix (for reverse proxy / security)
 ./rc --route /myapp -c "bash"
+
+# Enable file upload to working directory
+./rc --upload -c "bash"
 ```
 
 Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) in your browser.
@@ -193,6 +139,7 @@ All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route
 | `--no-restart` | | `false` | Disable command restart after exit (no restart bar shown) |
 | `--readonly` | | `false` | Disable stdin input (output only, view-only terminals) |
 | `--route` | | — | URL route prefix (e.g. `--route /myapp` → all endpoints under `/myapp/`) |
+| `--upload` | | `false` | Enable file upload to working directory (single file, no overwrite) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
@@ -263,7 +210,8 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Login page** — automatic login overlay when password is set; token stored in session
 - **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
-- **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
+- **Disconnect overlay** — appears on WebSocket disconnect; click Reconnect to retry (all input blocked while disconnected)
+- **Upload modal** — when `--upload` is enabled, an Upload button appears in the header; supports drag-and-drop, progress bar, and duplicate file rejection
 - **Floating helper button** (mobile/touch) — bottom-right SVG keyboard icon opens panel without triggering virtual keyboard:
   - Arrow keys
   - Special: Tab, Esc, Enter, Space
@@ -300,4 +248,4 @@ Windows requires **Windows 10 1809+** for ConPTY support. All core features (bro
 
 ## License
 
-MIT
+[MIT](LICENSE)
