@@ -26,6 +26,8 @@ type TabEntry struct {
 	Hostname  string
 	Workspace string
 	Addr      string // remote agent IP
+	NoRestart bool
+	Readonly  bool
 
 	// For local tabs (nil for remote tabs)
 	PtyMgr *PTYManager
@@ -51,6 +53,8 @@ type Hub struct {
 	hostname  string
 	workspace string
 	user      string
+	noRestart bool
+	readonly  bool
 	mu        sync.RWMutex
 }
 
@@ -82,10 +86,12 @@ type TabInfo struct {
 	Hostname  string `json:"hostname,omitempty"`
 	Workspace string `json:"workspace,omitempty"`
 	Addr      string `json:"addr,omitempty"`
+	NoRestart bool   `json:"noRestart,omitempty"`
+	Readonly  bool   `json:"readonly,omitempty"`
 }
 
 // NewHub creates a new Hub with local PTY sessions.
-func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string) *Hub {
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly bool) *Hub {
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	h := &Hub{
@@ -95,6 +101,8 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 		hostname:  hostname,
 		workspace: workspace,
 		user:      currentUser,
+		noRestart: noRestart,
+		readonly:  readonly,
 	}
 	for i := range ptyMgrs {
 		h.tabs[i] = &TabEntry{
@@ -105,6 +113,8 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 			User:      currentUser,
 			Hostname:  hostname,
 			Workspace: workspace,
+			NoRestart: noRestart,
+			Readonly:  readonly,
 		}
 	}
 	return h
@@ -121,6 +131,8 @@ func (h *Hub) getTabInfos() []TabInfo {
 			Hostname:  t.Hostname,
 			Workspace: t.Workspace,
 			Addr:      t.Addr,
+			NoRestart: t.NoRestart,
+			Readonly:  t.Readonly,
 		}
 		if t.PtyMgr != nil {
 			infos[i].Pid = t.PtyMgr.Pid()
@@ -277,6 +289,9 @@ func (h *Hub) readPump(c *Client) {
 
 		switch msg.Type {
 		case "input":
+			if entry.Readonly {
+				break
+			}
 			if entry.PtyMgr != nil {
 				if err := entry.PtyMgr.Write([]byte(msg.Data)); err != nil {
 					log.Printf("PTY write error (tab %d): %v", tab, err)
@@ -303,6 +318,9 @@ func (h *Hub) readPump(c *Client) {
 				}
 			}
 		case "restart":
+			if entry.NoRestart {
+				break
+			}
 			if entry.PtyMgr != nil {
 				outputCh, err := entry.PtyMgr.Restart()
 				if err != nil {
@@ -390,6 +408,8 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			Hostname:  agentHostname,
 			Workspace: agentWorkspace,
 			Addr:      agentAddr,
+			NoRestart: ti.NoRestart,
+			Readonly:  ti.Readonly,
 		})
 	}
 	h.agents[agentConn] = true
@@ -405,6 +425,8 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			Hostname:  agentHostname,
 			Workspace: agentWorkspace,
 			Addr:      agentAddr,
+			NoRestart: ti.NoRestart,
+			Readonly:  ti.Readonly,
 		}
 		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
 		h.broadcastToClients(addMsg)

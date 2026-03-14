@@ -18,11 +18,13 @@ import (
 )
 
 type Agent struct {
-	target   string
-	sessions []*agentSession
-	password string
-	mu       sync.RWMutex
-	writeCh  chan []byte
+	target    string
+	sessions  []*agentSession
+	password  string
+	noRestart bool
+	readonly  bool
+	mu        sync.RWMutex
+	writeCh   chan []byte
 }
 
 type agentSession struct {
@@ -32,7 +34,7 @@ type agentSession struct {
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
-func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int) {
+func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int, noRestart, readonly bool) {
 	hostname, _ := os.Hostname()
 
 	sessions := make([]*agentSession, len(commands))
@@ -60,9 +62,11 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 	}
 
 	agent := &Agent{
-		target:   buildAttachURL(target),
-		sessions: sessions,
-		password: password,
+		target:    buildAttachURL(target),
+		sessions:  sessions,
+		password:  password,
+		noRestart: noRestart,
+		readonly:  readonly,
 	}
 
 	// Graceful shutdown
@@ -190,6 +194,8 @@ func (a *Agent) connect() error {
 			Name:      s.Name,
 			Hostname:  hostname,
 			Workspace: workspace,
+			NoRestart: a.noRestart,
+			Readonly:  a.readonly,
 		}
 	}
 	regMsg, _ := json.Marshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
@@ -245,12 +251,18 @@ func (a *Agent) connect() error {
 
 		switch msg.Type {
 		case "input":
+			if a.readonly {
+				continue
+			}
 			a.sessions[tab].PtyMgr.Write([]byte(msg.Data))
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
 				a.sessions[tab].PtyMgr.Resize(msg.Cols, msg.Rows)
 			}
 		case "restart":
+			if a.noRestart {
+				continue
+			}
 			outputCh, err := a.sessions[tab].PtyMgr.Restart()
 			if err != nil {
 				errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})

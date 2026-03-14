@@ -34,6 +34,8 @@ var (
 	cfgDaemon     bool
 	cfgBufferSize int
 	cfgBind       string
+	cfgNoRestart  bool
+	cfgReadonly   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -67,6 +69,8 @@ func init() {
 	f.BoolVarP(&cfgDaemon, "daemon", "d", false, "Run as background daemon")
 	f.IntVar(&cfgBufferSize, "buffer-size", 10, "Output buffer size in MB")
 	f.StringVar(&cfgBind, "bind", "0.0.0.0", "Bind address")
+	f.BoolVar(&cfgNoRestart, "no-restart", false, "Disable command restart after exit")
+	f.BoolVar(&cfgReadonly, "readonly", false, "Disable stdin input (output only)")
 }
 
 func main() {
@@ -97,7 +101,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Agent mode: attach to a remote hub instead of running a server
 	if cfgAttach != "" {
-		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes)
+		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes, cfgNoRestart, cfgReadonly)
 		return nil
 	}
 
@@ -148,7 +152,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
-	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser)
+	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly)
 	for i, s := range sessions {
 		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}

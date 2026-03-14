@@ -377,6 +377,7 @@
 
       // Wire up terminal I/O
       t.onData((data) => {
+        if (meta.readonly) return;
         if (ctrlActive && data.length === 1) {
           const code = data.toLowerCase().charCodeAt(0);
           if (code >= 97 && code <= 122) {
@@ -440,7 +441,12 @@
       if (!t) return;
       if (t.status === 'exited') {
         setStatus('process exited', 'status-disconnected');
-        restartBar.classList.add('visible');
+        const canRestart = !(t.meta && t.meta.noRestart);
+        if (canRestart) {
+          restartBar.classList.add('visible');
+        } else {
+          restartBar.classList.remove('visible');
+        }
       } else if (t.status === 'disconnected') {
         setStatus('agent disconnected', 'status-disconnected');
         restartBar.classList.remove('visible');
@@ -587,6 +593,8 @@
     });
 
     function sendKey(keyId) {
+      const t = tabs[activeTab];
+      if (t && t.meta && t.meta.readonly) return;
       const seq = keyMap[keyId];
       if (seq) sendWS({ type: 'input', data: seq, tab: activeTab });
     }
@@ -600,14 +608,12 @@
         btn.style.background = '#585b70';
         setTimeout(() => btn.style.background = '', 120);
         sendKey(btn.getAttribute('data-key'));
-        if (tabs[activeTab]) tabs[activeTab].term.focus();
       }, { passive: false });
       btn.addEventListener('click', (e) => {
         if (touched) { touched = false; return; }
         e.preventDefault();
         e.stopPropagation();
         sendKey(btn.getAttribute('data-key'));
-        if (tabs[activeTab]) tabs[activeTab].term.focus();
       });
     });
 
@@ -626,7 +632,6 @@
       } else {
         deactivateCtrl();
       }
-      if (tabs[activeTab]) tabs[activeTab].term.focus();
     }
     ctrlToggle.addEventListener('touchend', (e) => {
       e.preventDefault();
