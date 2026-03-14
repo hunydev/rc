@@ -326,6 +326,9 @@
       <button class="key-btn wide" data-key="ctrlc">Ctrl+C</button>
       <button class="key-btn wide" id="ctrl-toggle">Ctrl &#9166;</button>
     </div>
+    <div class="key-row">
+      <button class="key-btn wide" id="paste-btn" style="flex:1">&#128203; Paste</button>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -344,6 +347,7 @@
     const helperFab = document.getElementById('helper-fab');
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
+    const pasteBtn = document.getElementById('paste-btn');
 
     // ───── Multi-Tab State ─────
     let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta, split, ...}]
@@ -530,6 +534,7 @@
         ensureTab(i, name, remote, meta);
       });
       loadTabOrder();
+      loadSplitState();
     }
 
     // ───── Tab Order (drag-and-drop persistence) ─────
@@ -550,6 +555,22 @@
         saved.forEach(idx => {
           if (existing.has(idx) && tabs[idx]) {
             tabBar.appendChild(tabs[idx].tabEl);
+          }
+        });
+      } catch (e) {}
+    }
+
+    // ───── Split State Persistence ─────
+    function saveSplitState() {
+      try { localStorage.setItem('rc-split-tabs', JSON.stringify(splitTabs)); } catch (e) {}
+    }
+    function loadSplitState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('rc-split-tabs'));
+        if (!Array.isArray(saved)) return;
+        saved.forEach(idx => {
+          if (tabs[idx] && !tabs[idx].split && !tabs[idx].removed) {
+            splitToRight(idx);
           }
         });
       } catch (e) {}
@@ -621,6 +642,7 @@
 
       splitPane.classList.add('visible');
       updateSplitToggle();
+      saveSplitState();
       refitAllTerminals();
     }
 
@@ -651,6 +673,7 @@
       }
 
       updateSplitToggle();
+      saveSplitState();
       refitAllTerminals();
     }
 
@@ -913,6 +936,29 @@
       e.stopPropagation();
       activateOrDeactivateCtrl();
     });
+
+    // Paste button handler
+    let pasteTouched = false;
+    pasteBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pasteTouched = true;
+      doPaste();
+    }, { passive: false });
+    pasteBtn.addEventListener('click', (e) => {
+      if (pasteTouched) { pasteTouched = false; return; }
+      e.preventDefault();
+      e.stopPropagation();
+      doPaste();
+    });
+    function doPaste() {
+      if (!navigator.clipboard || !navigator.clipboard.readText) return;
+      const t = tabs[activeTab];
+      if (!t || (t.meta && t.meta.readonly)) return;
+      navigator.clipboard.readText().then(text => {
+        if (text) sendWS({ type: 'input', data: text, tab: activeTab });
+      }).catch(() => {});
+    }
 
     // ───── WebSocket ─────
     function connectWS() {
