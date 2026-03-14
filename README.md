@@ -48,14 +48,14 @@ Agent on Server C ──── PTY × K (remote commands)
 
 ### WebSocket Protocol
 
-All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote? }`.
+All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote?, meta? }`.
 
 **Browser ↔ Hub:**
 
 | Direction | Type | Description |
 |-----------|------|-------------|
 | Server → Client | `tabs` | Tab list on connect (`tabs`: array of `{name, remote}`) |
-| Server → Client | `tab_added` | New remote tab added dynamically (`data`: name, `tab`: index, `remote`: true) |
+| Server → Client | `tab_added` | New remote tab added dynamically (`data`: name, `tab`: index, `remote`: true, `meta`: tab metadata) |
 | Client → Server | `input` | Keyboard input (`data`: string, `tab`: int) |
 | Client → Server | `resize` | Terminal size change (`cols`, `rows`: uint16, `tab`: int) |
 | Client → Server | `restart` | Restart the PTY command (`tab`: int) |
@@ -69,7 +69,7 @@ All messages are JSON with `{ type, data?, cols?, rows?, tab, tabs?, remote? }`.
 
 | Direction | Type | Description |
 |-----------|------|-------------|
-| Agent → Hub | `register` | Registration with tab list (`tabs`: array of `{name}`) |
+| Agent → Hub | `register` | Registration with tab list, hostname, workspace, user (`tabs`: array of `{name}`, `data`: username) |
 | Agent → Hub | `output` | PTY output from agent command (`data`: string, `tab`: agent-relative index) |
 | Agent → Hub | `status` | Status update (`data`: `"running"` / `"exited"` / `"restarted"`, `tab`: agent-relative index) |
 | Hub → Agent | `input` | Forwarded keyboard input (`data`: string, `tab`: agent-relative index) |
@@ -97,6 +97,9 @@ go build -o rc .
 
 # Multiple commands with tabs
 ./rc -c "htop" -c "bash" -c "python3 -i"
+
+# Custom tab labels
+./rc -c "bash" -l "dev" -c "htop" -l "monitor"
 
 # Custom port and bind address
 ./rc -p 9000 --bind 127.0.0.1 -c "bash"
@@ -149,6 +152,7 @@ The scheme is auto-detected: `wss://` for port 443, `ws://` otherwise. You can a
 |------|-------|---------|-------------|
 | `--port` | `-p` | `8000` | HTTP server port |
 | `--command` | `-c` | `bash` | Command to run (repeatable for multi-tab, e.g. `-c "bash" -c "htop"`) |
+| `--label` | `-l` | — | Tab label (repeatable, paired with `-c`; e.g. `-c "bash" -l "dev"`) |
 | `--attach` | `-a` | — | Attach to a remote hub (e.g. `-a serverA:8000`). Runs in agent mode. |
 | `--password` | | — | Password for server access (Bearer token). Env: `RC_PASSWORD` |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
@@ -205,13 +209,15 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - 🔴 Red dot — exited
   - 🟡 Yellow pulsing dot — awaiting input (idle for 3+ seconds)
   - ⚫ Gray dot — agent disconnected
-  - **REMOTE** badge — italic purple styling for remote agent tabs
+  - Purple ring — remote agent tab indicator
   - **×** close button — appears on disconnected remote tabs to remove them
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
+  - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
+- **Copy on select** — selecting text in the terminal automatically copies to clipboard
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
 - **Login page** — automatic login overlay when password is set; token stored in session
-- **Header** — Shows logo, hostname, working directory, and command list
+- **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart
 - **Disconnect overlay** — appears on WebSocket disconnect; auto-reconnects in 3s
 - **Floating helper button** (mobile/touch) — bottom-right button opens panel:
@@ -228,7 +234,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.0`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.3.1`).
 
 ## Platform Notes
 
