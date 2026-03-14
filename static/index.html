@@ -440,6 +440,8 @@
     let hubInfo = {}; // {hostname, workspace} from /info
     // Derive route prefix from current URL path (strip trailing /index.html or /)
     const routePrefix = location.pathname.replace(/\/(?:index\.html)?$/, '');
+
+    function isConnected() { return ws && ws.readyState === WebSocket.OPEN; }
     let splitTabs = []; // indices of tabs in split pane (display order)
     let dragSrcIdx = null; // currently dragged tab index
 
@@ -575,6 +577,7 @@
 
       // Wire up terminal I/O
       t.onData((data) => {
+        if (!isConnected()) return;
         if (meta.readonly) return;
         if (ctrlActive && data.length === 1) {
           const code = data.toLowerCase().charCodeAt(0);
@@ -782,6 +785,7 @@
     }
 
     function switchTab(idx) {
+      if (!isConnected()) return;
       if (idx === activeTab || !tabs[idx] || tabs[idx].removed || tabs[idx].split) return;
       if (tabs[activeTab]) {
         tabs[activeTab].wrapper.classList.remove('active');
@@ -968,6 +972,7 @@
     });
 
     function sendKey(keyId) {
+      if (!isConnected()) return;
       const t = tabs[activeTab];
       if (t && t.meta && t.meta.readonly) return;
       const seq = keyMap[keyId];
@@ -1036,6 +1041,7 @@
       doPaste();
     });
     function doPaste() {
+      if (!isConnected()) return;
       if (!navigator.clipboard || !navigator.clipboard.readText) return;
       const t = tabs[activeTab];
       if (!t || (t.meta && t.meta.readonly)) return;
