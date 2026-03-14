@@ -57,22 +57,21 @@
     .tab-item:hover { color: #a6adc8; }
     .tab-item.active { color: #89b4fa; border-bottom-color: #89b4fa; }
     .tab-item .tab-dot {
-      width: 6px; height: 6px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 50%; background: #40d080; flex-shrink: 0;
       transition: background 0.3s;
     }
-    .tab-item .tab-dot.awaiting { background: #f9e2af; animation: pulse-await 1.5s ease-in-out infinite; }
+    .tab-item .tab-dot.awaiting { background: #f0c040; animation: pulse-await 1.2s ease-in-out infinite; }
     @keyframes pulse-await {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      50% { opacity: 0.55; }
     }
     .tab-item .tab-dot.exited { background: #f38ba8; }
-    .tab-item .tab-dot.disconnected { background: #6c7086; }
+    .tab-item .tab-dot.disconnected { background: #585b70; }
     .tab-item.remote { font-style: italic; }
     .tab-item.remote.active { color: #cba6f7; border-bottom-color: #cba6f7; }
+    .tab-item .tab-dot.remote-dot { box-shadow: 0 0 0 2px #181825, 0 0 0 3px #cba6f7; }
     .tab-badge {
-      font-size: 9px; color: #1e1e2e; background: #cba6f7; border-radius: 4px;
-      padding: 1px 5px; margin-left: 4px; font-style: normal;
-      text-transform: uppercase; letter-spacing: 0.3px; line-height: 1.2;
+      display: none;
     }
     .tab-close {
       display: none; margin-left: 6px; font-size: 15px; color: #6c7086;
@@ -334,9 +333,7 @@
       dot.className = 'tab-dot';
       let closeEl = null;
       if (remote) {
-        const badge = document.createElement('span');
-        badge.className = 'tab-badge';
-        badge.textContent = 'remote';
+        dot.classList.add('remote-dot');
         closeEl = document.createElement('span');
         closeEl.className = 'tab-close';
         closeEl.textContent = '×';
@@ -348,7 +345,6 @@
         const label = document.createElement('span');
         label.textContent = name;
         tabEl.appendChild(label);
-        tabEl.appendChild(badge);
         tabEl.appendChild(closeEl);
       } else {
         const label = document.createElement('span');
