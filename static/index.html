@@ -570,8 +570,12 @@
 
     // Prevent touchstart on FAB and panel to stop mobile browsers
     // from focusing the terminal textarea (which opens the virtual keyboard).
-    helperFab.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
-    helperPanel.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+    // Also explicitly blur the terminal so an already-open keyboard is dismissed.
+    function blurTerminal() {
+      if (document.activeElement) document.activeElement.blur();
+    }
+    helperFab.addEventListener('touchstart', (e) => { e.preventDefault(); blurTerminal(); }, { passive: false });
+    helperPanel.addEventListener('touchstart', (e) => { e.preventDefault(); blurTerminal(); }, { passive: false });
 
     let fabTouched = false;
     helperFab.addEventListener('touchend', (e) => {
