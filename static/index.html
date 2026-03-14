@@ -1235,7 +1235,6 @@
       ws.onclose = () => {
         setStatus('disconnected', 'status-disconnected');
         dcOverlay.classList.add('visible');
-        reconnectTimer = setTimeout(connectWS, 3000);
       };
 
       ws.onerror = () => ws.close();
