@@ -10,6 +10,7 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 
 - **Remote access** — Control CLI tools (AI agents, build systems, REPLs) from any device with a browser.
 - **Multi-command tabs** — Run multiple commands in one session with `-c` flag. Switch between them with browser tabs.
+- **Split pane** — Send any tab to a right-side split view. Monitor multiple terminals side-by-side.
 - **Distributed terminals** — Attach remote servers to a central hub with `--attach`. Monitor everything from one browser.
 - **Session persistence** — Process survives browser disconnection. Reconnect and see full history.
 - **Mobile friendly** — Floating helper keyboard for touch devices (arrow keys, Ctrl combos, Tab, Esc).

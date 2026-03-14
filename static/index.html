@@ -114,6 +114,31 @@
     .split-header:hover .split-unsplit { display: inline; }
     .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; }
     .split-terminal .term-wrapper { display: block; }
+
+    /* Split pane toggle for narrow screens */
+    #split-toggle {
+      display: none; position: fixed; bottom: 76px; right: 20px; z-index: 89;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: #cba6f7; color: #1e1e2e; border: none;
+      font-size: 18px; line-height: 1; cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      align-items: center; justify-content: center;
+      touch-action: manipulation;
+    }
+
+    @media (max-width: 768px) {
+      #split-pane.visible {
+        display: flex;
+        position: fixed; top: 0; right: 0; bottom: 0;
+        width: 100%; z-index: 80;
+        background: #1e1e2e;
+        border-left: none;
+        transform: translateX(100%);
+        transition: transform 0.25s ease;
+      }
+      #split-pane.visible.slide-in { transform: translateX(0); }
+      #split-toggle.visible { display: flex; }
+    }
     #app { display: flex; flex-direction: column; height: 100%; }
 
     /* ───── Restart bar (bottom center, no modal) ───── */
@@ -245,6 +270,7 @@
       <div id="split-pane"></div>
     </div>
   </div>
+  <button id="split-toggle" aria-label="Toggle split pane">⧉</button>
 
   <!-- Restart button (inline, bottom center) -->
   <div id="restart-bar">
@@ -309,6 +335,7 @@
     const tabBar = document.getElementById('tab-bar');
     const termContainer = document.getElementById('terminal-container');
     const splitPane = document.getElementById('split-pane');
+    const splitToggle = document.getElementById('split-toggle');
     const restartBar = document.getElementById('restart-bar');
     const restartBtn = document.getElementById('restart-btn');
     const dcOverlay = document.getElementById('dc-overlay');
@@ -527,6 +554,21 @@
     }
 
     // ───── Split Pane ─────
+    function updateSplitToggle() {
+      if (splitTabs.length > 0) {
+        splitToggle.classList.add('visible');
+      } else {
+        splitToggle.classList.remove('visible');
+        splitPane.classList.remove('slide-in');
+      }
+    }
+
+    splitToggle.addEventListener('click', () => {
+      splitPane.classList.toggle('slide-in');
+      // Refit after slide animation
+      setTimeout(() => refitAllTerminals(), 300);
+    });
+
     function splitToRight(idx) {
       const t = tabs[idx];
       if (!t || t.split) return;
@@ -576,6 +618,7 @@
       t.splitEntry = entry;
 
       splitPane.classList.add('visible');
+      updateSplitToggle();
       refitAllTerminals();
     }
 
@@ -600,8 +643,12 @@
       t.tabEl.style.display = '';
 
       // Hide split pane if empty
-      if (splitTabs.length === 0) splitPane.classList.remove('visible');
+      if (splitTabs.length === 0) {
+        splitPane.classList.remove('visible');
+        splitPane.classList.remove('slide-in');
+      }
 
+      updateSplitToggle();
       refitAllTerminals();
     }
 
@@ -759,6 +806,10 @@
       tabs.forEach((t, i) => {
         if ((i === activeTab && !t.split) || t.split) t.fitAddon.fit();
       });
+      // On wide screens, auto-dismiss the slide-in class (it's only for narrow)
+      if (window.innerWidth > 768 && splitPane.classList.contains('slide-in')) {
+        splitPane.classList.remove('slide-in');
+      }
     });
 
     // ───── Restart Button ─────
