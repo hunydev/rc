@@ -861,10 +861,18 @@
         hostname = hubInfo.hostname || '';
         workspace = hubInfo.workspace || '';
       }
-      const parts = [];
-      if (hostname) parts.push('<span>' + hostname + '</span>');
-      if (workspace) parts.push(workspace);
-      headerInfo.innerHTML = parts.join(' &middot; ');
+      headerInfo.textContent = '';
+      if (hostname) {
+        const span = document.createElement('span');
+        span.textContent = hostname;
+        headerInfo.appendChild(span);
+      }
+      if (hostname && workspace) {
+        headerInfo.appendChild(document.createTextNode(' \u00B7 '));
+      }
+      if (workspace) {
+        headerInfo.appendChild(document.createTextNode(workspace));
+      }
     }
 
     async function initApp() {

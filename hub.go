@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -12,7 +13,17 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients (curl, agents)
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return u.Host == r.Host
+	},
 }
 
 // TabEntry represents a terminal session, either local or remote (agent-backed).
@@ -43,6 +54,15 @@ type AgentConn struct {
 	send    chan []byte
 	baseTab int // first global tab index for this agent
 	numTabs int // number of tabs this agent owns
+}
+
+// safeSend sends a message to a channel, recovering from panics on closed channels.
+func safeSend(ch chan<- []byte, msg []byte) {
+	defer func() { recover() }()
+	select {
+	case ch <- msg:
+	default:
+	}
 }
 
 // Hub manages browser clients, local PTYs, and remote agents.
@@ -147,10 +167,7 @@ func (h *Hub) Broadcast(tab int, data []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
-		select {
-		case client.send <- msg:
-		default:
-		}
+		safeSend(client.send, msg)
 	}
 }
 
@@ -166,10 +183,7 @@ func (h *Hub) BroadcastStatus(tab int, status string) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
-		select {
-		case client.send <- msg:
-		default:
-		}
+		safeSend(client.send, msg)
 	}
 }
 
@@ -178,10 +192,7 @@ func (h *Hub) broadcastToClients(msg []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
-		select {
-		case client.send <- msg:
-		default:
-		}
+		safeSend(client.send, msg)
 	}
 }
 
@@ -285,6 +296,7 @@ func (h *Hub) readPump(c *Client) {
 			continue
 		}
 		entry := h.tabs[tab]
+		agent := entry.agent
 		h.mu.RUnlock()
 
 		switch msg.Type {
@@ -296,12 +308,9 @@ func (h *Hub) readPump(c *Client) {
 				if err := entry.PtyMgr.Write([]byte(msg.Data)); err != nil {
 					log.Printf("PTY write error (tab %d): %v", tab, err)
 				}
-			} else if entry.agent != nil {
+			} else if agent != nil {
 				fwd, _ := json.Marshal(WSMessage{Type: "input", Data: msg.Data, Tab: entry.agentTab})
-				select {
-				case entry.agent.send <- fwd:
-				default:
-				}
+				safeSend(agent.send, fwd)
 			}
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
@@ -309,12 +318,9 @@ func (h *Hub) readPump(c *Client) {
 					if err := entry.PtyMgr.Resize(msg.Cols, msg.Rows); err != nil {
 						log.Printf("PTY resize error (tab %d): %v", tab, err)
 					}
-				} else if entry.agent != nil {
+				} else if agent != nil {
 					fwd, _ := json.Marshal(WSMessage{Type: "resize", Cols: msg.Cols, Rows: msg.Rows, Tab: entry.agentTab})
-					select {
-					case entry.agent.send <- fwd:
-					default:
-					}
+					safeSend(agent.send, fwd)
 				}
 			}
 		case "restart":
@@ -326,17 +332,14 @@ func (h *Hub) readPump(c *Client) {
 				if err != nil {
 					log.Printf("PTY restart error (tab %d): %v", tab, err)
 					errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
-					c.send <- errMsg
+					safeSend(c.send, errMsg)
 					break
 				}
 				h.BroadcastStatus(tab, "restarted")
 				h.StartOutputPump(tab, outputCh)
-			} else if entry.agent != nil {
+			} else if agent != nil {
 				fwd, _ := json.Marshal(WSMessage{Type: "restart", Tab: entry.agentTab})
-				select {
-				case entry.agent.send <- fwd:
-				default:
-				}
+				safeSend(agent.send, fwd)
 			}
 		case "close_tab":
 			h.mu.Lock()

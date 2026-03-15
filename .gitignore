@@ -1,5 +1,7 @@
 # Binary
 /rc
+/rc.exe
+rc-*
 
 # IDE
 .idea/
