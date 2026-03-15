@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -38,7 +39,7 @@ type ptySession struct {
 	pid     uint32
 }
 
-func newPTYSession(name string, args []string, cols, rows uint16) (*ptySession, error) {
+func newPTYSession(name string, args []string, cols, rows uint16, extraEnv []string) (*ptySession, error) {
 	// Create I/O pipes
 	var inR, inW, outR, outW syscall.Handle
 	if err := syscall.CreatePipe(&inR, &inW, nil, 0); err != nil {
@@ -110,6 +111,22 @@ func newPTYSession(name string, args []string, cols, rows uint16) (*ptySession, 
 	cmdLine := buildCmdLine(name, args)
 	cmdLineUTF16, _ := syscall.UTF16PtrFromString(cmdLine)
 
+	// Build environment block with extra env vars
+	var envBlock *uint16
+	createFlags := uintptr(_EXTENDED_STARTUPINFO_PRESENT)
+	if len(extraEnv) > 0 {
+		env := os.Environ()
+		env = append(env, extraEnv...)
+		envBlock = createEnvBlock(env)
+		createFlags |= 0x00000400 // CREATE_UNICODE_ENVIRONMENT
+	}
+
+	// Working directory (uses current directory of the process)
+	var lpDir *uint16
+	if wd, err := os.Getwd(); err == nil {
+		lpDir, _ = syscall.UTF16PtrFromString(wd)
+	}
+
 	// Set up STARTUPINFOEX with ConPTY attribute
 	var si startupInfoEx
 	si.Cb = uint32(unsafe.Sizeof(si))
@@ -121,8 +138,9 @@ func newPTYSession(name string, args []string, cols, rows uint16) (*ptySession, 
 		0,
 		uintptr(unsafe.Pointer(cmdLineUTF16)),
 		0, 0, 0,
-		_EXTENDED_STARTUPINFO_PRESENT,
-		0, 0,
+		createFlags,
+		uintptr(unsafe.Pointer(envBlock)),
+		uintptr(unsafe.Pointer(lpDir)),
 		uintptr(unsafe.Pointer(&si)),
 		uintptr(unsafe.Pointer(&pi)),
 	)
@@ -152,6 +170,17 @@ func buildCmdLine(name string, args []string) string {
 		parts = append(parts, quoteWinArg(a))
 	}
 	return strings.Join(parts, " ")
+}
+
+// createEnvBlock creates a Windows environment block (double-null-terminated UTF-16).
+func createEnvBlock(env []string) *uint16 {
+	var b []uint16
+	for _, s := range env {
+		u := syscall.StringToUTF16(s)
+		b = append(b, u...)
+	}
+	b = append(b, 0)
+	return &b[0]
 }
 
 // quoteWinArg quotes a single argument for Windows command line if needed.

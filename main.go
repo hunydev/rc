@@ -50,6 +50,9 @@ var (
 	cfgUpload     bool
 	cfgTLSCert    string
 	cfgTLSKey     string
+	cfgTitle      string
+	cfgWorkDir    string
+	cfgEnvVars    []string
 )
 
 var rootCmd = &cobra.Command{
@@ -89,6 +92,9 @@ func init() {
 	f.BoolVar(&cfgUpload, "upload", false, "Enable file upload to working directory")
 	f.StringVar(&cfgTLSCert, "tls-cert", "", "TLS certificate file path (enables HTTPS)")
 	f.StringVar(&cfgTLSKey, "tls-key", "", "TLS private key file path (requires --tls-cert)")
+	f.StringVar(&cfgTitle, "title", "", "Custom title displayed in the browser header")
+	f.StringVarP(&cfgWorkDir, "working-dir", "w", "", "Working directory for PTY processes")
+	f.StringArrayVarP(&cfgEnvVars, "env", "e", nil, "Environment variable for PTY processes (repeatable, e.g. -e KEY=VALUE)")
 }
 
 func main() {
@@ -128,9 +134,36 @@ func run(cmd *cobra.Command, args []string) error {
 		cfgRoute = "/" + cfgRoute
 	}
 
+	// Validate and apply working directory
+	if cfgWorkDir != "" {
+		absDir, err := filepath.Abs(cfgWorkDir)
+		if err != nil {
+			return fmt.Errorf("invalid working directory: %v", err)
+		}
+		info, err := os.Stat(absDir)
+		if err != nil {
+			return fmt.Errorf("working directory not found: %v", err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("working directory is not a directory: %s", absDir)
+		}
+		if err := os.Chdir(absDir); err != nil {
+			return fmt.Errorf("cannot change to working directory: %v", err)
+		}
+	}
+
+	// Build extra environment variables for PTY processes
+	extraEnv := []string{}
+	for _, e := range cfgEnvVars {
+		if !strings.Contains(e, "=") {
+			return fmt.Errorf("invalid --env format %q (expected KEY=VALUE)", e)
+		}
+		extraEnv = append(extraEnv, e)
+	}
+
 	// Agent mode: attach to a remote hub instead of running a server
 	if cfgAttach != "" {
-		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes, cfgNoRestart, cfgReadonly, cfgUpload)
+		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes, cfgNoRestart, cfgReadonly, cfgUpload, extraEnv)
 		return nil
 	}
 
@@ -146,7 +179,7 @@ func run(cmd *cobra.Command, args []string) error {
 		cmdName, cmdArgs := parseCommand(cmd)
 
 		buf := NewOutputBuffer(bufferBytes)
-		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(cfgCols), uint16(cfgRows), buf)
+		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(cfgCols), uint16(cfgRows), buf, extraEnv)
 		if err != nil {
 			return fmt.Errorf("failed to start PTY for '%s': %v", cmd, err)
 		}
@@ -200,14 +233,18 @@ func run(cmd *cobra.Command, args []string) error {
 
 	mux.HandleFunc(rp+"/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		info := map[string]interface{}{
 			"hostname":  hub.hostname,
 			"workspace": hub.workspace,
 			"commands":  cfgCommands,
 			"route":     rp,
 			"upload":    cfgUpload,
 			"version":   version,
-		}); err != nil {
+		}
+		if cfgTitle != "" {
+			info["title"] = cfgTitle
+		}
+		if err := json.NewEncoder(w).Encode(info); err != nil {
 			log.Printf("Failed to encode /info response: %v", err)
 		}
 	}))

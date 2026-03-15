@@ -1100,6 +1100,7 @@
       try {
         const info = await res.json();
         hubInfo = info;
+        if (info.title) document.title = info.title;
         updateHeaderForTab();
         if (info.version) menuVersion.textContent = info.version;
       } catch (e) {
@@ -1114,8 +1115,8 @@
         hostname = t.meta.hostname || '';
         workspace = t.meta.workspace || '';
       } else {
-        hostname = hubInfo.hostname || '';
-        workspace = hubInfo.workspace || '';
+        hostname = hubInfo.title || hubInfo.hostname || '';
+        workspace = hubInfo.title ? '' : (hubInfo.workspace || '');
       }
       headerInfo.textContent = '';
       if (hostname) {

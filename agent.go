@@ -37,7 +37,7 @@ type agentSession struct {
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
-func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int, noRestart, readonly, upload bool) {
+func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int, noRestart, readonly, upload bool, extraEnv []string) {
 	hostname, _ := os.Hostname()
 
 	sessions := make([]*agentSession, len(commands))
@@ -45,7 +45,7 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 		cmdName, cmdArgs := parseCommand(cmd)
 
 		buf := NewOutputBuffer(bufferSize)
-		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, cols, rows, buf)
+		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, cols, rows, buf, extraEnv)
 		if err != nil {
 			log.Fatalf("Failed to start PTY for '%s': %v", cmd, err)
 		}

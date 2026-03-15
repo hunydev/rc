@@ -15,9 +15,10 @@ type ptySession struct {
 	ptmx *os.File
 }
 
-func newPTYSession(name string, args []string, cols, rows uint16) (*ptySession, error) {
+func newPTYSession(name string, args []string, cols, rows uint16, extraEnv []string) (*ptySession, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = append(cmd.Env, extraEnv...)
 
 	winSize := &pty.Winsize{Cols: cols, Rows: rows}
 	ptmx, err := pty.StartWithSize(cmd, winSize)

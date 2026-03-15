@@ -17,18 +17,20 @@ type PTYManager struct {
 	session  *ptySession
 	buf      *OutputBuffer
 	outputCh chan []byte
+	extraEnv []string
 	mu       sync.Mutex
 	closed   bool
 }
 
 // NewPTYManager spawns a command in a PTY and starts reading its output.
-func NewPTYManager(name string, args []string, cols, rows uint16, buf *OutputBuffer) (*PTYManager, error) {
+func NewPTYManager(name string, args []string, cols, rows uint16, buf *OutputBuffer, extraEnv []string) (*PTYManager, error) {
 	mgr := &PTYManager{
 		cmdName:  name,
 		cmdArgs:  args,
 		initCols: cols,
 		initRows: rows,
 		buf:      buf,
+		extraEnv: extraEnv,
 	}
 
 	if err := mgr.start(cols, rows); err != nil {
@@ -39,7 +41,7 @@ func NewPTYManager(name string, args []string, cols, rows uint16, buf *OutputBuf
 }
 
 func (m *PTYManager) start(cols, rows uint16) error {
-	session, err := newPTYSession(m.cmdName, m.cmdArgs, cols, rows)
+	session, err := newPTYSession(m.cmdName, m.cmdArgs, cols, rows, m.extraEnv)
 	if err != nil {
 		return fmt.Errorf("pty start: %w", err)
 	}
