@@ -76,6 +76,12 @@ go build -o rc .
 
 # Enable file upload to working directory
 ./rc --upload -c "bash"
+
+# Custom title, working directory, and environment variables
+./rc --title "Production" -w /opt/app -e "NODE_ENV=production" -c "npm start"
+
+# HTTPS with TLS certificate
+./rc --tls-cert cert.pem --tls-key key.pem -c "bash"
 ```
 
 Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) in your browser.
@@ -150,10 +156,15 @@ All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route
 | `--label` | `-l` | — | Tab label (repeatable, paired with `-c`; e.g. `-c "bash" -l "dev"`) |
 | `--attach` | `-a` | — | Attach to a remote hub (e.g. `-a serverA:8000`). Runs in agent mode. |
 | `--password` | | — | Password for server access (Bearer token). Env: `RC_PASSWORD` |
+| `--title` | | — | Custom title displayed in browser header and page title |
+| `--working-dir` | `-w` | — | Working directory for PTY processes (default: current directory) |
+| `--env` | `-e` | — | Environment variable for PTY processes (repeatable, e.g. `-e KEY=VALUE`) |
 | `--no-restart` | | `false` | Disable command restart after exit (no restart bar shown) |
 | `--readonly` | | `false` | Disable stdin input (output only, view-only terminals) |
 | `--route` | | — | URL route prefix (e.g. `--route /myapp` → all endpoints under `/myapp/`) |
 | `--upload` | | `false` | Enable file upload to working directory (single file, no overwrite) |
+| `--tls-cert` | | — | TLS certificate file path (enables HTTPS; requires `--tls-key`) |
+| `--tls-key` | | — | TLS private key file path (requires `--tls-cert`) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
@@ -249,7 +260,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.9`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.0`).
 
 ## Platform Notes
 
