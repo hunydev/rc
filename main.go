@@ -232,7 +232,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
 		log.Println("Shutting down...")
@@ -242,6 +242,8 @@ func run(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		server.Shutdown(ctx)
+		// Force exit after graceful shutdown completes
+		os.Exit(0)
 	}()
 
 	log.Printf("rc running on http://%s%s", addr, rp+"/")
