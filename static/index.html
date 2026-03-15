@@ -41,7 +41,7 @@
       text-overflow: ellipsis; direction: rtl; text-align: left;
       min-width: 0;
     }
-    #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
+    #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; margin-left: auto; }
     .status-connected { background: #a6e3a1; color: #1e1e2e; }
     .status-disconnected { background: #f38ba8; color: #1e1e2e; }
     .status-connecting { background: #f9e2af; color: #1e1e2e; }
@@ -962,11 +962,10 @@
         wdSpan.textContent = '\u200E' + workspace;
         headerInfo.appendChild(wdSpan);
       }
-      // Upload button lives in #header (outside .info) so it never gets clipped
+      // Upload button placed right after .info so it stays near the workspace text
       const tabUpload = t && t.meta && t.meta.upload;
-      const statusEl = document.getElementById('status');
       if (tabUpload) {
-        statusEl.parentNode.insertBefore(uploadBtn, statusEl);
+        headerInfo.after(uploadBtn);
         uploadBtn.style.display = 'inline-flex';
       } else {
         uploadBtn.style.display = 'none';
