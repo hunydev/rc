@@ -199,6 +199,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
   - **Drag-and-drop** — reorder tabs by dragging; order saved to localStorage per browser
+  - **☰ Menu** — sticky button at right end of tab bar; shows About (version, author, GitHub link) and open-source license info
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
   - Multiple tabs can be stacked vertically in the split area
   - Click **✕** on a split tab header to unsplit and return it to the tab bar
@@ -211,7 +212,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
 - **Disconnect overlay** — appears on WebSocket disconnect; click Reconnect to retry (all input blocked while disconnected)
-- **Upload modal** — when `--upload` is enabled, an Upload button appears in the header; supports drag-and-drop, progress bar, and duplicate file rejection
+- **Upload modal** — when `--upload` is enabled, an upload icon appears next to the workspace path for tabs that support it (per-tab); supports drag-and-drop, progress bar, and duplicate file rejection. Agent tabs also show upload when the agent runs with `--upload`.
 - **Floating helper button** (mobile/touch) — bottom-right SVG keyboard icon opens panel without triggering virtual keyboard:
   - Arrow keys
   - Special: Tab, Esc, Enter, Space
@@ -227,7 +228,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.5`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.6`).
 
 ## Platform Notes
 
