@@ -30,10 +30,17 @@
     }
     #header .title { font-size: 14px; font-weight: 600; color: #89b4fa; white-space: nowrap; }
     #header .info {
-      font-size: 12px; color: #6c7086; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis; flex: 1; text-align: center;
+      font-size: 12px; color: #6c7086;
+      display: flex; align-items: center; justify-content: center;
+      flex: 1; min-width: 0; gap: 0; overflow: hidden;
     }
-    #header .info span { color: #a6adc8; }
+    #header .info span { color: #a6adc8; flex-shrink: 0; }
+    #header .info .wd {
+      color: #6c7086; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; direction: rtl; text-align: left;
+      min-width: 0;
+    }
+    #header .info .sep { flex-shrink: 0; padding: 0 4px; }
     #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
     .status-connected { background: #a6e3a1; color: #1e1e2e; }
     .status-disconnected { background: #f38ba8; color: #1e1e2e; }
@@ -269,8 +276,8 @@
     /* ───── Upload (inline icon next to workspace) ───── */
     #upload-btn {
       background: none; border: none; color: #6c7086; cursor: pointer;
-      padding: 0 0 0 6px; line-height: 1; vertical-align: middle; flex-shrink: 0;
-      transition: color 0.15s;
+      padding: 0 0 0 6px; line-height: 1; flex-shrink: 0;
+      transition: color 0.15s; display: none;
     }
     #upload-btn:hover { color: #89b4fa; }
 
@@ -943,16 +950,21 @@
         headerInfo.appendChild(span);
       }
       if (hostname && workspace) {
-        headerInfo.appendChild(document.createTextNode(' \u00B7 '));
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '\u00B7';
+        headerInfo.appendChild(sep);
       }
       if (workspace) {
-        headerInfo.appendChild(document.createTextNode(workspace));
+        const wdSpan = document.createElement('span');
+        wdSpan.className = 'wd';
+        wdSpan.textContent = '\u200E' + workspace;
+        headerInfo.appendChild(wdSpan);
       }
-      // Append upload icon inline after workspace if current tab supports upload
       const tabUpload = t && t.meta && t.meta.upload;
       if (tabUpload) {
         headerInfo.appendChild(uploadBtn);
-        uploadBtn.style.display = 'inline';
+        uploadBtn.style.display = 'inline-flex';
       } else {
         uploadBtn.style.display = 'none';
       }
