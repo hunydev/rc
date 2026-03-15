@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -23,6 +25,14 @@ import (
 var staticFiles embed.FS
 
 var version = "dev"
+
+const (
+	maxUploadSize     = 100 * 1024 * 1024 // 100 MB
+	httpReadTimeout   = 30 * time.Second
+	httpWriteTimeout  = 0 // disabled: WebSocket requires long-lived writes
+	httpIdleTimeout   = 120 * time.Second
+	shutdownTimeout   = 5 * time.Second
+)
 
 var (
 	cfgPort       int
@@ -167,7 +177,10 @@ func run(cmd *cobra.Command, args []string) error {
 	mux := http.NewServeMux()
 	rp := cfgRoute // route prefix
 
-	staticFS, _ := fs.Sub(staticFiles, "static")
+	staticFS, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return fmt.Errorf("failed to load static files: %v", err)
+	}
 	if rp == "" {
 		mux.Handle("/", http.FileServer(http.FS(staticFS)))
 	} else {
@@ -179,13 +192,15 @@ func run(cmd *cobra.Command, args []string) error {
 
 	mux.HandleFunc(rp+"/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"hostname":  hub.hostname,
 			"workspace": hub.workspace,
 			"commands":  cfgCommands,
 			"route":     rp,
 			"upload":    cfgUpload,
-		})
+		}); err != nil {
+			log.Printf("Failed to encode /info response: %v", err)
+		}
 	}))
 
 	mux.HandleFunc(rp+"/health", func(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +222,12 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
-	server := &http.Server{Addr: addr, Handler: mux}
+	server := &http.Server{
+		Addr:        addr,
+		Handler:     securityHeaders(mux),
+		ReadTimeout: httpReadTimeout,
+		IdleTimeout: httpIdleTimeout,
+	}
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -218,7 +238,9 @@ func run(cmd *cobra.Command, args []string) error {
 		for _, s := range sessions {
 			s.PtyMgr.Close()
 		}
-		server.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		server.Shutdown(ctx)
 	}()
 
 	log.Printf("rc running on http://%s%s", addr, rp+"/")
@@ -248,7 +270,9 @@ func daemonize() {
 	}
 
 	cmd := exec.Command(os.Args[0], args...)
-	cmd.Dir, _ = os.Getwd()
+	if wd, err := os.Getwd(); err == nil {
+		cmd.Dir = wd
+	}
 	cmd.Env = os.Environ()
 
 	// Detach: new session / new process group
@@ -265,8 +289,10 @@ func daemonize() {
 	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		log.Fatalf("Failed to start daemon: %v", err)
 	}
+	logFile.Close()
 
 	fmt.Printf("rc daemon started (pid=%d, log=%s)\n", cmd.Process.Pid, logPath)
 	os.Exit(0)
@@ -279,8 +305,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit upload size to 100 MB
-	r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024)
+	// Limit upload size
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -300,8 +326,20 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wd, _ := os.Getwd()
-	realWd, _ := filepath.EvalSymlinks(wd)
+	wd, err := os.Getwd()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get working directory"})
+		return
+	}
+	realWd, err := filepath.EvalSymlinks(wd)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve working directory"})
+		return
+	}
 	destPath := filepath.Join(realWd, filename)
 
 	// Verify path stays within working directory
@@ -331,7 +369,9 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	written, err := io.Copy(dst, file)
 	if err != nil {
-		os.Remove(destPath) // cleanup partial file
+		if rmErr := os.Remove(destPath); rmErr != nil {
+			log.Printf("Failed to cleanup partial upload: %v", rmErr)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
@@ -344,6 +384,16 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		"path": destPath,
 		"name": filename,
 		"size": written,
+	})
+}
+
+// securityHeaders adds standard security headers to all HTTP responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -18,6 +18,10 @@ const (
 	wsWriteWait  = 10 * time.Second
 	wsPongWait   = 60 * time.Second
 	wsPingPeriod = (wsPongWait * 9) / 10 // 54s
+
+	channelBufSize    = 256
+	readBufSize       = 4096
+	remoteTabBufBytes = 10 * 1024 * 1024 // 10 MB
 )
 
 var upgrader = websocket.Upgrader{
@@ -83,6 +87,16 @@ func safeGo(name string, fn func()) {
 		}()
 		fn()
 	}()
+}
+
+// mustMarshal marshals v to JSON, logging on failure.
+func mustMarshal(v interface{}) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("JSON marshal error: %v", err)
+		return nil
+	}
+	return data
 }
 
 // Hub manages browser clients, local PTYs, and remote agents.
@@ -183,7 +197,7 @@ func (h *Hub) getTabInfos() []TabInfo {
 
 // Broadcast sends PTY output to all browser clients (for local tabs).
 func (h *Hub) Broadcast(tab int, data []byte) {
-	msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(data), Tab: tab})
+	msg := mustMarshal(WSMessage{Type: "output", Data: string(data), Tab: tab})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
@@ -199,7 +213,7 @@ func (h *Hub) BroadcastStatus(tab int, status string) {
 	}
 	h.mu.Unlock()
 
-	msg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: tab})
+	msg := mustMarshal(WSMessage{Type: "status", Data: status, Tab: tab})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for client := range h.clients {
@@ -247,7 +261,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	client := &Client{
 		conn: conn,
-		send: make(chan []byte, 256),
+		send: make(chan []byte, channelBufSize),
 	}
 
 	// Atomically add client and snapshot tab state to avoid missing tab_added messages
@@ -269,7 +283,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Client connected: %s (total: %d)", r.RemoteAddr, len(h.clients))
 
 	// Send tab list
-	tabsMsg, _ := json.Marshal(WSMessage{Type: "tabs", Tabs: tabInfos})
+	tabsMsg := mustMarshal(WSMessage{Type: "tabs", Tabs: tabInfos})
 	client.send <- tabsMsg
 
 	// Send history and status for each tab
@@ -278,10 +292,10 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue // removed tab
 		}
 		if len(snapshots[i]) > 0 {
-			histMsg, _ := json.Marshal(WSMessage{Type: "output", Data: string(snapshots[i]), Tab: i})
+			histMsg := mustMarshal(WSMessage{Type: "output", Data: string(snapshots[i]), Tab: i})
 			client.send <- histMsg
 		}
-		statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: statuses[i], Tab: i})
+		statusMsg := mustMarshal(WSMessage{Type: "status", Data: statuses[i], Tab: i})
 		client.send <- statusMsg
 	}
 
@@ -339,6 +353,7 @@ func (h *Hub) readPump(c *Client) {
 
 		var msg WSMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Client message parse error: %v", err)
 			continue
 		}
 
@@ -362,7 +377,7 @@ func (h *Hub) readPump(c *Client) {
 					log.Printf("PTY write error (tab %d): %v", tab, err)
 				}
 			} else if agent != nil {
-				fwd, _ := json.Marshal(WSMessage{Type: "input", Data: msg.Data, Tab: entry.agentTab})
+				fwd := mustMarshal(WSMessage{Type: "input", Data: msg.Data, Tab: entry.agentTab})
 				safeSend(agent.send, fwd)
 			}
 		case "resize":
@@ -372,7 +387,7 @@ func (h *Hub) readPump(c *Client) {
 						log.Printf("PTY resize error (tab %d): %v", tab, err)
 					}
 				} else if agent != nil {
-					fwd, _ := json.Marshal(WSMessage{Type: "resize", Cols: msg.Cols, Rows: msg.Rows, Tab: entry.agentTab})
+					fwd := mustMarshal(WSMessage{Type: "resize", Cols: msg.Cols, Rows: msg.Rows, Tab: entry.agentTab})
 					safeSend(agent.send, fwd)
 				}
 			}
@@ -384,14 +399,14 @@ func (h *Hub) readPump(c *Client) {
 				outputCh, err := entry.PtyMgr.Restart()
 				if err != nil {
 					log.Printf("PTY restart error (tab %d): %v", tab, err)
-					errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
+					errMsg := mustMarshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
 					safeSend(c.send, errMsg)
 					break
 				}
 				h.BroadcastStatus(tab, "restarted")
 				h.StartOutputPump(tab, outputCh)
 			} else if agent != nil {
-				fwd, _ := json.Marshal(WSMessage{Type: "restart", Tab: entry.agentTab})
+				fwd := mustMarshal(WSMessage{Type: "restart", Tab: entry.agentTab})
 				safeSend(agent.send, fwd)
 			}
 		case "close_tab":
@@ -399,7 +414,7 @@ func (h *Hub) readPump(c *Client) {
 			if entry.Remote && entry.Status == "disconnected" && !entry.Removed {
 				entry.Removed = true
 				h.mu.Unlock()
-				rmMsg, _ := json.Marshal(WSMessage{Type: "tab_removed", Tab: tab})
+				rmMsg := mustMarshal(WSMessage{Type: "tab_removed", Tab: tab})
 				h.broadcastToClients(rmMsg)
 				log.Printf("Tab %d closed by client", tab)
 			} else {
@@ -434,7 +449,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 
 	agentConn := &AgentConn{
 		conn:    conn,
-		send:    make(chan []byte, 256),
+		send:    make(chan []byte, channelBufSize),
 		numTabs: len(regMsg.Tabs),
 	}
 
@@ -459,7 +474,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		h.tabs = append(h.tabs, &TabEntry{
 			Name:      ti.Name,
 			Remote:    true,
-			Buf:       NewOutputBuffer(10 * 1024 * 1024),
+			Buf:       NewOutputBuffer(remoteTabBufBytes),
 			Status:    "running",
 			agent:     agentConn,
 			agentTab:  i,
@@ -487,7 +502,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			NoRestart: ti.NoRestart,
 			Readonly:  ti.Readonly,
 		}
-		addMsg, _ := json.Marshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
+		addMsg := mustMarshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
 		h.broadcastToClients(addMsg)
 	}
 
@@ -552,10 +567,9 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 
 		var msg WSMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Agent message parse error: %v", err)
 			continue
 		}
-
-		// Map agent-relative tab index to global tab index
 		if msg.Tab < 0 || msg.Tab >= agentConn.numTabs {
 			continue
 		}
@@ -570,14 +584,14 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			}
 			h.mu.RUnlock()
 			// Broadcast to browsers
-			outMsg, _ := json.Marshal(WSMessage{Type: "output", Data: msg.Data, Tab: globalTab})
+			outMsg := mustMarshal(WSMessage{Type: "output", Data: msg.Data, Tab: globalTab})
 			h.broadcastToClients(outMsg)
 
 		case "status":
 			h.BroadcastStatus(globalTab, msg.Data)
 
 		case "error":
-			errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: msg.Data, Tab: globalTab})
+			errMsg := mustMarshal(WSMessage{Type: "error", Data: msg.Data, Tab: globalTab})
 			h.broadcastToClients(errMsg)
 		}
 	}

@@ -88,14 +88,20 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 		log.Printf("  Command: %s", s.Name)
 	}
 
-	// Connection loop with retry
+	// Connection loop with exponential backoff
+	retryDelay := 1 * time.Second
+	const maxRetryDelay = 30 * time.Second
 	for {
 		err := agent.connect()
 		if err != nil {
 			log.Printf("Hub connection error: %v", err)
 		}
-		log.Println("Reconnecting in 3 seconds...")
-		time.Sleep(3 * time.Second)
+		log.Printf("Reconnecting in %v...", retryDelay)
+		time.Sleep(retryDelay)
+		retryDelay = retryDelay * 2
+		if retryDelay > maxRetryDelay {
+			retryDelay = maxRetryDelay
+		}
 	}
 }
 
@@ -144,10 +150,10 @@ func (a *Agent) sendToHub(msg []byte) {
 // Runs for the lifetime of the PTY process. Exits when outputCh closes (process exit).
 func (a *Agent) drainOutput(idx int, s *agentSession) {
 	for data := range s.PtyMgr.OutputChan() {
-		msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(data), Tab: idx})
+		msg := mustMarshal(WSMessage{Type: "output", Data: string(data), Tab: idx})
 		a.sendToHub(msg)
 	}
-	msg, _ := json.Marshal(WSMessage{Type: "status", Data: "exited", Tab: idx})
+	msg := mustMarshal(WSMessage{Type: "status", Data: "exited", Tab: idx})
 	a.sendToHub(msg)
 }
 
@@ -164,7 +170,7 @@ func (a *Agent) connect() error {
 	}
 	defer conn.Close()
 
-	writeCh := make(chan []byte, 256)
+	writeCh := make(chan []byte, channelBufSize)
 
 	// Writer goroutine with ping (serializes WebSocket writes)
 	writerDone := make(chan struct{})
@@ -209,7 +215,7 @@ func (a *Agent) connect() error {
 			Readonly:  a.readonly,
 		}
 	}
-	regMsg, _ := json.Marshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
+	regMsg := mustMarshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
 	writeCh <- regMsg
 
 	// Send buffer snapshots and current status for each session
@@ -217,14 +223,14 @@ func (a *Agent) connect() error {
 	for i, s := range a.sessions {
 		snapshot := s.Buf.Snapshot()
 		if len(snapshot) > 0 {
-			msg, _ := json.Marshal(WSMessage{Type: "output", Data: string(snapshot), Tab: i})
+			msg := mustMarshal(WSMessage{Type: "output", Data: string(snapshot), Tab: i})
 			writeCh <- msg
 		}
 		status := "exited"
 		if s.PtyMgr.IsRunning() {
 			status = "running"
 		}
-		statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: status, Tab: i})
+		statusMsg := mustMarshal(WSMessage{Type: "status", Data: status, Tab: i})
 		writeCh <- statusMsg
 	}
 
@@ -258,6 +264,7 @@ func (a *Agent) connect() error {
 
 		var msg WSMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("Hub message parse error: %v", err)
 			continue
 		}
 
@@ -286,11 +293,11 @@ func (a *Agent) connect() error {
 			}
 			outputCh, err := a.sessions[tab].PtyMgr.Restart()
 			if err != nil {
-				errMsg, _ := json.Marshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
+				errMsg := mustMarshal(WSMessage{Type: "error", Data: err.Error(), Tab: tab})
 				a.sendToHub(errMsg)
 				continue
 			}
-			statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: "restarted", Tab: tab})
+			statusMsg := mustMarshal(WSMessage{Type: "status", Data: "restarted", Tab: tab})
 			a.sendToHub(statusMsg)
 			// Start new drain goroutine for the restarted process
 			_ = outputCh

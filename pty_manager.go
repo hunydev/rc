@@ -48,7 +48,7 @@ func (m *PTYManager) start(cols, rows uint16) error {
 	m.closed = false
 	m.curCols = cols
 	m.curRows = rows
-	m.outputCh = make(chan []byte, 256)
+	m.outputCh = make(chan []byte, channelBufSize)
 
 	sess := session
 	ch := m.outputCh
@@ -81,7 +81,7 @@ func (m *PTYManager) Restart() (<-chan []byte, error) {
 }
 
 func (m *PTYManager) readLoop(sess *ptySession, ch chan []byte) {
-	tmp := make([]byte, 4096)
+	tmp := make([]byte, readBufSize)
 	for {
 		n, err := sess.Read(tmp)
 		if n > 0 {
