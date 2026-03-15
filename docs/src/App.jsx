@@ -214,8 +214,8 @@ function HowItWorks() {
   const icons = [
     <Terminal size={20} />,
     <Server size={20} />,
-    <Zap size={20} />,
-    <MonitorSmartphone size={20} />,
+    <Globe size={20} />,
+    <Smartphone size={20} />,
   ]
 
   return (
