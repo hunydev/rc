@@ -24,9 +24,9 @@
     .xterm-viewport { scrollbar-width: thin; scrollbar-color: #45475a #1e1e2e; }
 
     #header {
-      display: flex; align-items: center; justify-content: space-between;
+      display: flex; align-items: center;
       padding: 8px 16px; background: #181825; border-bottom: 1px solid #313244;
-      height: 40px; flex-shrink: 0; gap: 12px; overflow: hidden;
+      height: 40px; flex-shrink: 0; gap: 8px; overflow: hidden;
     }
     #header .title { font-size: 14px; font-weight: 600; color: #89b4fa; white-space: nowrap; }
     #header .info {
@@ -34,13 +34,13 @@
       display: flex; align-items: center; justify-content: center;
       flex: 1; min-width: 0; gap: 0; overflow: hidden;
     }
-    #header .info span { color: #a6adc8; flex-shrink: 0; }
+    #header .info .hostname { color: #a6adc8; white-space: nowrap; flex-shrink: 0; }
+    #header .info .sep { flex-shrink: 0; padding: 0 4px; white-space: nowrap; }
     #header .info .wd {
       color: #6c7086; white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; direction: rtl; text-align: left;
       min-width: 0;
     }
-    #header .info .sep { flex-shrink: 0; padding: 0 4px; }
     #header .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
     .status-connected { background: #a6e3a1; color: #1e1e2e; }
     .status-disconnected { background: #f38ba8; color: #1e1e2e; }
@@ -276,7 +276,7 @@
     /* ───── Upload (inline icon next to workspace) ───── */
     #upload-btn {
       background: none; border: none; color: #6c7086; cursor: pointer;
-      padding: 0 0 0 6px; line-height: 1; flex-shrink: 0;
+      padding: 0; line-height: 1; flex-shrink: 0;
       transition: color 0.15s; display: none;
     }
     #upload-btn:hover { color: #89b4fa; }
@@ -946,6 +946,7 @@
       headerInfo.textContent = '';
       if (hostname) {
         const span = document.createElement('span');
+        span.className = 'hostname';
         span.textContent = hostname;
         headerInfo.appendChild(span);
       }
@@ -961,9 +962,11 @@
         wdSpan.textContent = '\u200E' + workspace;
         headerInfo.appendChild(wdSpan);
       }
+      // Upload button lives in #header (outside .info) so it never gets clipped
       const tabUpload = t && t.meta && t.meta.upload;
+      const statusEl = document.getElementById('status');
       if (tabUpload) {
-        headerInfo.appendChild(uploadBtn);
+        statusEl.parentNode.insertBefore(uploadBtn, statusEl);
         uploadBtn.style.display = 'inline-flex';
       } else {
         uploadBtn.style.display = 'none';
