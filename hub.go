@@ -1,12 +1,17 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,15 +107,23 @@ func mustMarshal(v interface{}) []byte {
 
 // Hub manages browser clients, local PTYs, and remote agents.
 type Hub struct {
-	tabs      []*TabEntry
-	clients   map[*Client]bool
-	agents    map[*AgentConn]bool
-	hostname  string
-	workspace string
-	user      string
-	noRestart bool
-	readonly  bool
-	mu        sync.RWMutex
+	tabs           []*TabEntry
+	clients        map[*Client]bool
+	agents         map[*AgentConn]bool
+	hostname       string
+	workspace      string
+	user           string
+	noRestart      bool
+	readonly       bool
+	mu             sync.RWMutex
+	pendingUploads map[int]chan uploadResult // keyed by hub tab index
+	uploadMu       sync.Mutex
+}
+
+// uploadResult carries the agent's upload response back to the HTTP handler.
+type uploadResult struct {
+	Status int    // HTTP status code
+	Body   string // JSON response body
 }
 
 // Client represents a connected browser WebSocket client.
@@ -121,14 +134,15 @@ type Client struct {
 
 // WSMessage is the JSON message format for all WebSocket communication.
 type WSMessage struct {
-	Type   string    `json:"type"`
-	Data   string    `json:"data,omitempty"`
-	Cols   uint16    `json:"cols,omitempty"`
-	Rows   uint16    `json:"rows,omitempty"`
-	Tab    int       `json:"tab"`
-	Tabs   []TabInfo `json:"tabs,omitempty"`
-	Remote bool      `json:"remote,omitempty"`
-	Meta   *TabInfo  `json:"meta,omitempty"`
+	Type     string    `json:"type"`
+	Data     string    `json:"data,omitempty"`
+	Cols     uint16    `json:"cols,omitempty"`
+	Rows     uint16    `json:"rows,omitempty"`
+	Tab      int       `json:"tab"`
+	Tabs     []TabInfo `json:"tabs,omitempty"`
+	Remote   bool      `json:"remote,omitempty"`
+	Meta     *TabInfo  `json:"meta,omitempty"`
+	Filename string    `json:"filename,omitempty"`
 }
 
 // TabInfo describes a tab in the 'tabs' message.
@@ -151,14 +165,15 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	h := &Hub{
-		tabs:      make([]*TabEntry, len(ptyMgrs)),
-		clients:   make(map[*Client]bool),
-		agents:    make(map[*AgentConn]bool),
-		hostname:  hostname,
-		workspace: workspace,
-		user:      currentUser,
-		noRestart: noRestart,
-		readonly:  readonly,
+		tabs:           make([]*TabEntry, len(ptyMgrs)),
+		clients:        make(map[*Client]bool),
+		agents:         make(map[*AgentConn]bool),
+		hostname:       hostname,
+		workspace:      workspace,
+		user:           currentUser,
+		noRestart:      noRestart,
+		readonly:       readonly,
+		pendingUploads: make(map[int]chan uploadResult),
 	}
 	for i := range ptyMgrs {
 		h.tabs[i] = &TabEntry{
@@ -242,6 +257,158 @@ func (h *Hub) StartOutputPump(tab int, outputCh <-chan []byte) {
 		}
 		h.Broadcast(tab, []byte("\r\n\033[1;31m[rc] Process exited.\033[0m\r\n"))
 		h.BroadcastStatus(tab, "exited")
+	})
+}
+
+const uploadProxyTimeout = 60 * time.Second
+
+// HandleUpload handles file upload — local or proxied to agent.
+func (h *Hub) HandleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+
+	// Determine target tab
+	tabStr := r.URL.Query().Get("tab")
+	tab := -1
+	if tabStr != "" {
+		if v, err := strconv.Atoi(tabStr); err == nil {
+			tab = v
+		}
+	}
+
+	// Check if target tab is a remote agent tab
+	var agent *AgentConn
+	var agentTab int
+	if tab >= 0 {
+		h.mu.RLock()
+		if tab < len(h.tabs) && h.tabs[tab].Remote && h.tabs[tab].agent != nil && h.tabs[tab].Upload {
+			agent = h.tabs[tab].agent
+			agentTab = h.tabs[tab].agentTab
+		}
+		h.mu.RUnlock()
+	}
+
+	// Read the uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(header.Filename)
+	if filename == "." || filename == "/" || filename == ".." {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid filename"})
+		return
+	}
+
+	if agent != nil {
+		// Proxy upload to agent via WebSocket
+		data, err := io.ReadAll(file)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file: " + err.Error()})
+			return
+		}
+
+		// Register pending upload
+		ch := make(chan uploadResult, 1)
+		h.uploadMu.Lock()
+		h.pendingUploads[tab] = ch
+		h.uploadMu.Unlock()
+
+		// Send upload message to agent
+		uploadMsg := mustMarshal(WSMessage{
+			Type:     "upload",
+			Data:     base64.StdEncoding.EncodeToString(data),
+			Filename: filename,
+			Tab:      agentTab,
+		})
+		safeSend(agent.send, uploadMsg)
+
+		// Wait for agent response
+		select {
+		case result := <-ch:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(result.Status)
+			fmt.Fprint(w, result.Body)
+		case <-time.After(uploadProxyTimeout):
+			h.uploadMu.Lock()
+			delete(h.pendingUploads, tab)
+			h.uploadMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusGatewayTimeout)
+			json.NewEncoder(w).Encode(map[string]string{"error": "agent upload timeout"})
+		}
+		return
+	}
+
+	// Local upload
+	wd, err := os.Getwd()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get working directory"})
+		return
+	}
+	realWd, err := filepath.EvalSymlinks(wd)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve working directory"})
+		return
+	}
+	destPath := filepath.Join(realWd, filename)
+
+	if !strings.HasPrefix(destPath, realWd+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid file path"})
+		return
+	}
+
+	if _, err := os.Stat(destPath); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file already exists: " + filename})
+		return
+	}
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create file: " + err.Error()})
+		return
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, file)
+	if err != nil {
+		if rmErr := os.Remove(destPath); rmErr != nil {
+			log.Printf("Failed to cleanup partial upload: %v", rmErr)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file: " + err.Error()})
+		return
+	}
+
+	log.Printf("File uploaded: %s (%d bytes)", destPath, written)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"path": destPath,
+		"name": filename,
+		"size": written,
 	})
 }
 
@@ -599,6 +766,21 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		case "error":
 			errMsg := mustMarshal(WSMessage{Type: "error", Data: msg.Data, Tab: globalTab})
 			h.broadcastToClients(errMsg)
+
+		case "upload_result":
+			h.uploadMu.Lock()
+			ch, ok := h.pendingUploads[globalTab]
+			if ok {
+				delete(h.pendingUploads, globalTab)
+			}
+			h.uploadMu.Unlock()
+			if ok {
+				status := 200
+				if msg.Cols > 0 { // reuse Cols as HTTP status for errors
+					status = int(msg.Cols)
+				}
+				ch <- uploadResult{Status: status, Body: msg.Data}
+			}
 		}
 	}
 }

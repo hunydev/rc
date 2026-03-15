@@ -1175,7 +1175,7 @@
       form.append('file', file);
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', routePrefix + '/upload');
+      xhr.open('POST', routePrefix + '/upload?tab=' + activeTab);
       if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
 
       xhr.upload.addEventListener('progress', (e) => {

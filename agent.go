@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -305,6 +307,56 @@ func (a *Agent) connect() error {
 			// Start new drain goroutine for the restarted process
 			_ = outputCh
 			safeGo("drainOutput", func() { a.drainOutput(tab, a.sessions[tab]) })
+
+		case "upload":
+			result := a.handleUpload(msg.Filename, msg.Data)
+			result.Tab = tab
+			a.sendToHub(mustMarshal(result))
 		}
 	}
+}
+
+// handleUpload processes an upload message from the hub and writes the file to the agent's wd.
+func (a *Agent) handleUpload(filename, b64data string) WSMessage {
+if !a.upload {
+return WSMessage{Type: "upload_result", Cols: 403, Data: `{"error":"upload not enabled"}`}
+}
+
+filename = filepath.Base(filename)
+if filename == "." || filename == "/" || filename == ".." {
+return WSMessage{Type: "upload_result", Cols: 400, Data: `{"error":"invalid filename"}`}
+}
+
+data, err := base64.StdEncoding.DecodeString(b64data)
+if err != nil {
+return WSMessage{Type: "upload_result", Cols: 400, Data: `{"error":"invalid file data"}`}
+}
+
+wd, err := os.Getwd()
+if err != nil {
+return WSMessage{Type: "upload_result", Cols: 500, Data: `{"error":"failed to get working directory"}`}
+}
+realWd, err := filepath.EvalSymlinks(wd)
+if err != nil {
+return WSMessage{Type: "upload_result", Cols: 500, Data: `{"error":"failed to resolve working directory"}`}
+}
+destPath := filepath.Join(realWd, filename)
+
+if !strings.HasPrefix(destPath, realWd+string(filepath.Separator)) {
+return WSMessage{Type: "upload_result", Cols: 400, Data: `{"error":"invalid file path"}`}
+}
+
+if _, err := os.Stat(destPath); err == nil {
+body := mustMarshal(map[string]string{"error": "file already exists: " + filename})
+return WSMessage{Type: "upload_result", Cols: 409, Data: string(body)}
+}
+
+if err := os.WriteFile(destPath, data, 0644); err != nil {
+body := mustMarshal(map[string]string{"error": "failed to write file: " + err.Error()})
+return WSMessage{Type: "upload_result", Cols: 500, Data: string(body)}
+}
+
+log.Printf("File uploaded: %s (%d bytes)", destPath, len(data))
+body := mustMarshal(map[string]interface{}{"path": destPath, "name": filename, "size": len(data)})
+return WSMessage{Type: "upload_result", Data: string(body)}
 }
