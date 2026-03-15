@@ -65,6 +65,10 @@ func (s *ptySession) Wait() {
 	_ = s.cmd.Wait()
 }
 
+// Shutdown releases resources to unblock readLoop after process exit.
+// On Unix this is a no-op; the PTY master returns EOF when the child exits.
+func (s *ptySession) Shutdown() {}
+
 func (s *ptySession) Close() {
 	_ = s.ptmx.Close()
 }

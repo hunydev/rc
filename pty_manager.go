@@ -50,8 +50,11 @@ func (m *PTYManager) start(cols, rows uint16) error {
 	m.curRows = rows
 	m.outputCh = make(chan []byte, 256)
 
-	go m.readLoop()
-	go m.waitProcess()
+	// Capture local references so goroutines are not affected by Restart()
+	sess := session
+	ch := m.outputCh
+	go m.readLoop(sess, ch)
+	go m.waitProcess(sess)
 
 	log.Printf("PTY started: pid=%d, cmd=%s %v, size=%dx%d", session.Pid(), m.cmdName, m.cmdArgs, cols, rows)
 	return nil
@@ -78,26 +81,27 @@ func (m *PTYManager) Restart() (<-chan []byte, error) {
 	return m.outputCh, nil
 }
 
-func (m *PTYManager) readLoop() {
+func (m *PTYManager) readLoop(sess *ptySession, ch chan []byte) {
 	tmp := make([]byte, 4096)
 	for {
-		n, err := m.session.Read(tmp)
+		n, err := sess.Read(tmp)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, tmp[:n])
 			m.buf.Write(data)
-			m.outputCh <- data
+			ch <- data
 		}
 		if err != nil {
 			break
 		}
 	}
-	close(m.outputCh)
+	close(ch)
 }
 
-func (m *PTYManager) waitProcess() {
-	m.session.Wait()
-	log.Printf("PTY process exited: pid=%d", m.session.Pid())
+func (m *PTYManager) waitProcess(sess *ptySession) {
+	sess.Wait()
+	sess.Shutdown()
+	log.Printf("PTY process exited: pid=%d", sess.Pid())
 }
 
 // OutputChan returns a channel that receives PTY output.

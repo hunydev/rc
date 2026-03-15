@@ -196,9 +196,21 @@ func (s *ptySession) Wait() {
 	_, _ = syscall.WaitForSingleObject(s.process, syscall.INFINITE)
 }
 
+// Shutdown closes the ConPTY handle to unblock readLoop after process exit.
+// On Windows, ReadFile on the output pipe blocks until ConPTY is closed.
+func (s *ptySession) Shutdown() {
+	if s.hPC != 0 {
+		procClosePseudoConsole.Call(s.hPC)
+		s.hPC = 0
+	}
+}
+
 func (s *ptySession) Close() {
 	syscall.CloseHandle(s.inW)
 	syscall.CloseHandle(s.outR)
-	procClosePseudoConsole.Call(s.hPC)
+	if s.hPC != 0 {
+		procClosePseudoConsole.Call(s.hPC)
+		s.hPC = 0
+	}
 	syscall.CloseHandle(s.process)
 }
