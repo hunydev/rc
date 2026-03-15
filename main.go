@@ -48,6 +48,8 @@ var (
 	cfgReadonly   bool
 	cfgRoute      string
 	cfgUpload     bool
+	cfgTLSCert    string
+	cfgTLSKey     string
 )
 
 var rootCmd = &cobra.Command{
@@ -85,6 +87,8 @@ func init() {
 	f.BoolVar(&cfgReadonly, "readonly", false, "Disable stdin input (output only)")
 	f.StringVar(&cfgRoute, "route", "", "URL route prefix (e.g. /myapp)")
 	f.BoolVar(&cfgUpload, "upload", false, "Enable file upload to working directory")
+	f.StringVar(&cfgTLSCert, "tls-cert", "", "TLS certificate file path (enables HTTPS)")
+	f.StringVar(&cfgTLSKey, "tls-key", "", "TLS private key file path (requires --tls-cert)")
 }
 
 func main() {
@@ -98,6 +102,11 @@ func run(cmd *cobra.Command, args []string) error {
 	// Password from environment variable (fallback, avoids leaking in ps)
 	if cfgPassword == "" {
 		cfgPassword = os.Getenv("RC_PASSWORD")
+	}
+
+	// TLS validation: both cert and key must be provided together
+	if (cfgTLSCert != "") != (cfgTLSKey != "") {
+		return fmt.Errorf("both --tls-cert and --tls-key must be specified together")
 	}
 
 	// Daemon mode: re-exec self without -d/--daemon, fully detached
@@ -245,15 +254,27 @@ func run(cmd *cobra.Command, args []string) error {
 		os.Exit(0)
 	}()
 
-	log.Printf("rc running on http://%s%s", addr, rp+"/")
+	tlsEnabled := cfgTLSCert != "" && cfgTLSKey != ""
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	log.Printf("rc running on %s://%s%s", scheme, addr, rp+"/")
 	for i, cmd := range cfgCommands {
 		log.Printf("  Tab %d: %s", i, cmd)
 	}
 	if cfgPassword != "" {
 		log.Printf("  Password protection: enabled")
 	}
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %v", err)
+	if tlsEnabled {
+		log.Printf("  TLS: cert=%s key=%s", cfgTLSCert, cfgTLSKey)
+		if err := server.ListenAndServeTLS(cfgTLSCert, cfgTLSKey); err != http.ErrServerClosed {
+			return fmt.Errorf("server error: %v", err)
+		}
+	} else {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			return fmt.Errorf("server error: %v", err)
+		}
 	}
 	return nil
 }
