@@ -112,12 +112,26 @@
     #split-pane.visible { display: flex; }
     .split-entry { flex: 1; display: flex; flex-direction: column; min-height: 0; }
     .split-entry + .split-entry { border-top: 1px solid #313244; }
+    .split-entry.focused > .split-header { background: #1e1e2e; }
+    .split-entry.focused > .split-terminal { box-shadow: inset 0 0 0 1px rgba(137,180,250,0.15); }
     .split-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 2px 10px; background: #181825; font-size: 12px; color: #a6adc8;
       flex-shrink: 0; height: 24px; border-bottom: 1px solid #313244;
     }
+    .split-header .split-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .split-header .split-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #a6e3a1; flex-shrink: 0;
+    }
+    .split-header .split-dot.exited { background: #f38ba8; }
+    .split-header .split-dot.disconnected { background: #585b70; }
+    .split-header .split-dot.awaiting { background: #f0c040; animation: pulse-await 1.2s ease-in-out infinite; }
     .split-header .split-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .split-header .split-restart {
+      background: none; border: none; color: #89b4fa; cursor: pointer;
+      font-size: 11px; padding: 0 4px; transition: color 0.15s; display: none;
+    }
+    .split-header .split-restart:hover { color: #74c7ec; }
     .split-header .split-unsplit {
       cursor: pointer; font-size: 13px; color: #6c7086; padding: 0 2px;
     }
@@ -127,8 +141,13 @@
       padding: 0 4px; line-height: 1; transition: color 0.15s;
     }
     .split-header .split-upload:hover { color: #89b4fa; }
+    .split-header .split-move {
+      background: none; border: none; color: #6c7086; cursor: pointer;
+      padding: 0 2px; line-height: 1; transition: color 0.15s;
+    }
+    .split-header .split-move:hover { color: #a6adc8; }
     .split-header .split-actions { display: flex; align-items: center; gap: 4px; }
-    .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; }
+    .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; transition: box-shadow 0.2s; }
     .split-terminal .term-wrapper { display: block; }
 
     /* Split pane toggle for narrow screens */
@@ -574,6 +593,11 @@
     let splitTabs = []; // indices of tabs in split pane (display order)
     let dragSrcIdx = null; // currently dragged tab index
 
+    // Clear split focus when clicking main terminal
+    termContainer.addEventListener('mousedown', () => {
+      splitPane.querySelectorAll('.split-entry').forEach(e => e.classList.remove('focused'));
+    });
+
     const termOptions = {
       cursorBlink: true,
       fontSize: 14,
@@ -828,11 +852,45 @@
 
       const header = document.createElement('div');
       header.className = 'split-header';
+
+      const leftGroup = document.createElement('span');
+      leftGroup.className = 'split-left';
+      const splitDot = document.createElement('span');
+      splitDot.className = 'split-dot';
+      if (t.status === 'exited') splitDot.classList.add('exited');
+      else if (t.status === 'disconnected') splitDot.classList.add('disconnected');
       const nameSpan = document.createElement('span');
       nameSpan.className = 'split-name';
       nameSpan.textContent = t.name;
+      const restartBtnSplit = document.createElement('button');
+      restartBtnSplit.className = 'split-restart';
+      restartBtnSplit.textContent = '↻';
+      restartBtnSplit.title = 'Restart';
+      if (t.status === 'exited' && !(t.meta && t.meta.noRestart)) restartBtnSplit.style.display = 'inline';
+      restartBtnSplit.addEventListener('click', () => {
+        sendWS({ type: 'restart', tab: idx });
+        restartBtnSplit.style.display = 'none';
+      });
+      leftGroup.appendChild(splitDot);
+      leftGroup.appendChild(nameSpan);
+      leftGroup.appendChild(restartBtnSplit);
+
       const actions = document.createElement('span');
       actions.className = 'split-actions';
+      // Move up
+      const moveUpBtn = document.createElement('button');
+      moveUpBtn.className = 'split-move';
+      moveUpBtn.title = 'Move up';
+      moveUpBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>';
+      moveUpBtn.addEventListener('click', () => moveSplitTab(idx, -1));
+      actions.appendChild(moveUpBtn);
+      // Move down
+      const moveDownBtn = document.createElement('button');
+      moveDownBtn.className = 'split-move';
+      moveDownBtn.title = 'Move down';
+      moveDownBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>';
+      moveDownBtn.addEventListener('click', () => moveSplitTab(idx, 1));
+      actions.appendChild(moveDownBtn);
       if (t.meta && t.meta.upload) {
         const splitUploadBtn = document.createElement('button');
         splitUploadBtn.className = 'split-upload';
@@ -847,11 +905,16 @@
       unsplitBtn.title = 'Unsplit';
       unsplitBtn.addEventListener('click', () => unsplitTab(idx));
       actions.appendChild(unsplitBtn);
-      header.appendChild(nameSpan);
+
+      header.appendChild(leftGroup);
       header.appendChild(actions);
 
       const termArea = document.createElement('div');
       termArea.className = 'split-terminal';
+
+      // Track focus on split terminal
+      termArea.addEventListener('mousedown', () => setSplitFocus(idx));
+      termArea.addEventListener('focusin', () => setSplitFocus(idx));
 
       // Move wrapper from main container to split entry
       t.wrapper.classList.remove('active');
@@ -899,6 +962,48 @@
       updateSplitToggle();
       saveSplitState();
       refitAllTerminals();
+    }
+
+    function setSplitFocus(idx) {
+      splitPane.querySelectorAll('.split-entry').forEach(e => e.classList.remove('focused'));
+      const t = tabs[idx];
+      if (t && t.splitEntry) t.splitEntry.classList.add('focused');
+    }
+
+    function moveSplitTab(idx, direction) {
+      const pos = splitTabs.indexOf(idx);
+      if (pos < 0) return;
+      const newPos = pos + direction;
+      if (newPos < 0 || newPos >= splitTabs.length) return;
+      // Swap in splitTabs array
+      [splitTabs[pos], splitTabs[newPos]] = [splitTabs[newPos], splitTabs[pos]];
+      // Reorder DOM
+      splitPane.innerHTML = '';
+      splitTabs.forEach(i => {
+        const t = tabs[i];
+        if (t && t.splitEntry) splitPane.appendChild(t.splitEntry);
+      });
+      saveSplitState();
+      refitAllTerminals();
+    }
+
+    function updateSplitEntryStatus(idx) {
+      const t = tabs[idx];
+      if (!t || !t.splitEntry) return;
+      const dot = t.splitEntry.querySelector('.split-dot');
+      const restartBtnEl = t.splitEntry.querySelector('.split-restart');
+      if (dot) {
+        dot.classList.remove('exited', 'disconnected', 'awaiting');
+        if (t.status === 'exited') dot.classList.add('exited');
+        else if (t.status === 'disconnected') dot.classList.add('disconnected');
+      }
+      if (restartBtnEl) {
+        if (t.status === 'exited' && !(t.meta && t.meta.noRestart)) {
+          restartBtnEl.style.display = 'inline';
+        } else {
+          restartBtnEl.style.display = 'none';
+        }
+      }
     }
 
     function refitAllTerminals() {
@@ -1345,6 +1450,10 @@
                 t.term.write(msg.data);
                 t.lastOutputAt = Date.now();
                 t.dotEl.classList.remove('awaiting');
+                if (t.splitEntry) {
+                  const sd = t.splitEntry.querySelector('.split-dot');
+                  if (sd) sd.classList.remove('awaiting');
+                }
               }
               break;
             }
@@ -1375,6 +1484,7 @@
                   }
                 }
                 if (msg.tab === activeTab) updateTabStatus();
+                updateSplitEntryStatus(msg.tab);
               }
               break;
             }
@@ -1416,10 +1526,14 @@
     const IDLE_THRESHOLD = 3000; // 3 seconds of silence → "awaiting input"
     setInterval(() => {
       const now = Date.now();
-      for (const t of Object.values(tabs)) {
+      for (const [i, t] of Object.entries(tabs)) {
         if (!t) continue;
         if (t.status === 'running' && now - t.lastOutputAt > IDLE_THRESHOLD) {
           t.dotEl.classList.add('awaiting');
+          if (t.splitEntry) {
+            const sd = t.splitEntry.querySelector('.split-dot');
+            if (sd) sd.classList.add('awaiting');
+          }
         }
       }
     }, 1000);
