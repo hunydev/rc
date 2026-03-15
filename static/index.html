@@ -146,6 +146,7 @@
       padding: 0 2px; line-height: 1; transition: color 0.15s;
     }
     .split-header .split-move:hover { color: #a6adc8; }
+    .split-header .split-move.disabled { opacity: 0.25; cursor: default; pointer-events: none; }
     .split-header .split-actions { display: flex; align-items: center; gap: 4px; }
     .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; transition: box-shadow 0.2s; }
     .split-terminal .term-wrapper { display: block; }
@@ -897,6 +898,7 @@
         splitUploadBtn.title = 'Upload file';
         splitUploadBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
         splitUploadBtn.addEventListener('click', () => openUploadForTab(idx));
+        if (t.status === 'disconnected') splitUploadBtn.style.display = 'none';
         actions.appendChild(splitUploadBtn);
       }
       const unsplitBtn = document.createElement('span');
@@ -929,6 +931,7 @@
 
       splitPane.classList.add('visible');
       updateSplitToggle();
+      updateSplitMoveButtons();
       saveSplitState();
       refitAllTerminals();
     }
@@ -960,6 +963,7 @@
       }
 
       updateSplitToggle();
+      updateSplitMoveButtons();
       saveSplitState();
       refitAllTerminals();
     }
@@ -975,16 +979,25 @@
       if (pos < 0) return;
       const newPos = pos + direction;
       if (newPos < 0 || newPos >= splitTabs.length) return;
-      // Swap in splitTabs array
       [splitTabs[pos], splitTabs[newPos]] = [splitTabs[newPos], splitTabs[pos]];
-      // Reorder DOM
       splitPane.innerHTML = '';
       splitTabs.forEach(i => {
         const t = tabs[i];
         if (t && t.splitEntry) splitPane.appendChild(t.splitEntry);
       });
       saveSplitState();
+      updateSplitMoveButtons();
       refitAllTerminals();
+    }
+
+    function updateSplitMoveButtons() {
+      splitTabs.forEach((idx, pos) => {
+        const t = tabs[idx];
+        if (!t || !t.splitEntry) return;
+        const moves = t.splitEntry.querySelectorAll('.split-move');
+        if (moves[0]) moves[0].classList.toggle('disabled', pos === 0);
+        if (moves[1]) moves[1].classList.toggle('disabled', pos === splitTabs.length - 1);
+      });
     }
 
     function updateSplitEntryStatus(idx) {
@@ -992,17 +1005,17 @@
       if (!t || !t.splitEntry) return;
       const dot = t.splitEntry.querySelector('.split-dot');
       const restartBtnEl = t.splitEntry.querySelector('.split-restart');
+      const uploadBtnEl = t.splitEntry.querySelector('.split-upload');
       if (dot) {
         dot.classList.remove('exited', 'disconnected', 'awaiting');
         if (t.status === 'exited') dot.classList.add('exited');
         else if (t.status === 'disconnected') dot.classList.add('disconnected');
       }
       if (restartBtnEl) {
-        if (t.status === 'exited' && !(t.meta && t.meta.noRestart)) {
-          restartBtnEl.style.display = 'inline';
-        } else {
-          restartBtnEl.style.display = 'none';
-        }
+        restartBtnEl.style.display = (t.status === 'exited' && !(t.meta && t.meta.noRestart)) ? 'inline' : 'none';
+      }
+      if (uploadBtnEl) {
+        uploadBtnEl.style.display = (t.status === 'disconnected') ? 'none' : '';
       }
     }
 
@@ -1124,7 +1137,7 @@
         headerInfo.appendChild(wdSpan);
       }
       // Upload button placed right after .info so it stays near the workspace text
-      const tabUpload = t && t.meta && t.meta.upload;
+      const tabUpload = t && t.meta && t.meta.upload && t.status !== 'disconnected';
       if (tabUpload) {
         headerInfo.after(uploadBtn);
         uploadBtn.style.display = 'inline-flex';
