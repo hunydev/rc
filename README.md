@@ -6,6 +6,16 @@
 
 A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) and streams it to a web browser in real-time via WebSocket. Close the browser, come back later — output is preserved and the process keeps running.
 
+🌐 **Website**: [rc.huny.dev](https://rc.huny.dev)
+
+## Install
+
+```bash
+curl -fsSL https://rc.huny.dev/install.sh | bash
+```
+
+Or download pre-built binaries from the [Releases](https://github.com/hunydev/rc/releases) page.
+
 ## Why
 
 - **Remote access** — Control CLI tools (AI agents, build systems, REPLs) from any device with a browser.
@@ -228,7 +238,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.6`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.7`).
 
 ## Platform Notes
 
