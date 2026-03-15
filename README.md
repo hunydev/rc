@@ -213,10 +213,17 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
   - **Drag-and-drop** — reorder tabs by dragging; order saved to localStorage per browser
-  - **☰ Menu** — sticky button at right end of tab bar; shows About (version, author, GitHub link) and open-source license info
+  - **☰ Menu** — sticky button at right end of tab bar; tabable action menu:
+    - **Close disconnected tabs** — removes all disconnected agent tabs at once
+    - **Reset tab order** — clears saved tab order (localStorage) and restores original order
+    - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
+    - **Logout** — clears authentication token and reloads (shown only when logged in)
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
   - Multiple tabs can be stacked vertically in the split area
-  - Split tab headers show **✕** (unsplit) and **📤** upload button (when upload is enabled)
+  - Split tab headers show status dot (🟢/🔴/🟡/⚫), **✕** unsplit, **📤** upload (when enabled & connected), and **↑↓** reorder arrows
+  - **Restart** button (↻) appears inline when a split tab's command exits
+  - **Focus indicator** — subtle highlight on the focused split terminal
+  - **Reorder** — move split tabs up/down; boundary arrows are dimmed and disabled
   - Split state persists across page reloads (saved to localStorage)
   - On narrow screens (≤ 768px), the split pane becomes a slide-out drawer toggled by a floating button
 - **Copy on select** — selecting text in the terminal automatically copies to clipboard
@@ -242,7 +249,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.8`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.9`).
 
 ## Platform Notes
 
