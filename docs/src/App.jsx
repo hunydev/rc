@@ -19,6 +19,7 @@ import { translations } from './i18n'
 import './App.css'
 
 const INSTALL_CMD = 'curl -fsSL https://rc.huny.dev/install.sh | bash'
+const INSTALL_CMD_WIN = 'powershell -c "irm https://rc.huny.dev/install.ps1 | iex"'
 const GITHUB_URL = 'https://github.com/hunydev/rc'
 
 const LangContext = createContext()
@@ -102,11 +103,11 @@ function TerminalMockup() {
         <div style={{ width: 50 }} />
       </div>
       <div className="terminal-body">
-        <div className="line"><span className="prompt">$ </span><span className="cmd">rc </span><span className="flag">-c </span><span className="val">bash </span><span className="flag">-c </span><span className="val">htop </span><span className="flag">--upload </span><span className="flag">--password </span><span className="val">****</span></div>
+        <div className="line"><span className="prompt">$ </span><span className="cmd">rc </span><span className="flag">-c </span><span className="val">bash </span><span className="flag">-c </span><span className="val">htop </span><span className="flag">--password </span><span className="val">****</span></div>
         <div className="blank" />
         <div className="line"><span className="output">  </span><span className="success">rc</span><span className="output"> {h.term_running}</span></div>
         <div className="line"><span className="output">  {h.term_server}  </span><span className="url">http://0.0.0.0:8000</span></div>
-        <div className="line"><span className="output">    Tab 0: bash      [upload]</span></div>
+        <div className="line"><span className="output">    Tab 0: bash</span></div>
         <div className="line"><span className="output">    Tab 1: htop</span></div>
         <div className="line"><span className="output">    {h.term_password}</span></div>
         <div className="blank" />
@@ -152,20 +153,37 @@ function Hero() {
 function InstallStrip() {
   const { lang } = useLang()
   const ins = translations[lang].install
+  const [tab, setTab] = useState('unix')
   return (
     <section className="install-strip" id="install">
       <h2>{ins.title}</h2>
-      <div className="install-box">
-        <code>
-          <span className="dollar">$</span>
-          <span className="ic">curl</span>
-          {' -fsSL '}
-          <span className="iu">https://rc.huny.dev/install.sh</span>
-          <span className="ip">{' | '}</span>
-          <span className="ic">bash</span>
-        </code>
-        <CopyButton text={INSTALL_CMD} />
+      <div className="install-tabs">
+        <button className={`install-tab ${tab === 'unix' ? 'active' : ''}`} onClick={() => setTab('unix')}>macOS / Linux</button>
+        <button className={`install-tab ${tab === 'win' ? 'active' : ''}`} onClick={() => setTab('win')}>Windows</button>
       </div>
+      {tab === 'unix' ? (
+        <div className="install-box">
+          <code>
+            <span className="dollar">$</span>
+            <span className="ic">curl</span>
+            {' -fsSL '}
+            <span className="iu">https://rc.huny.dev/install.sh</span>
+            <span className="ip">{' | '}</span>
+            <span className="ic">bash</span>
+          </code>
+          <CopyButton text={INSTALL_CMD} />
+        </div>
+      ) : (
+        <div className="install-box">
+          <code>
+            <span className="dollar">&gt;</span>
+            <span className="ic">powershell</span>
+            {' -c '}
+            <span className="iu">"irm https://rc.huny.dev/install.ps1 | iex"</span>
+          </code>
+          <CopyButton text={INSTALL_CMD_WIN} />
+        </div>
+      )}
       <p className="install-or">
         {ins.or} <a href={`${GITHUB_URL}#quick-start`} target="_blank" rel="noopener noreferrer">{ins.buildFromSource}</a>
       </p>
