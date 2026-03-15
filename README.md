@@ -11,7 +11,11 @@ A lightweight server that runs **any CLI command** in a pseudo-terminal (PTY) an
 ## Install
 
 ```bash
+# macOS / Linux
 curl -fsSL https://rc.huny.dev/install.sh | bash
+
+# Windows (PowerShell)
+powershell -c "irm https://rc.huny.dev/install.ps1 | iex"
 ```
 
 Or download pre-built binaries from the [Releases](https://github.com/hunydev/rc/releases) page.
@@ -199,7 +203,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 
 ## Frontend Features
 
-- **Tab bar** — Multiple commands shown as tabs; click to switch. Hidden with single tab.
+- **Tab bar** — Commands shown as tabs; always visible even with a single tab. Click to switch.
   - 🟢 Green dot — running
   - 🔴 Red dot — exited
   - 🟡 Yellow pulsing dot — awaiting input (idle for 3+ seconds)
@@ -212,14 +216,14 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **☰ Menu** — sticky button at right end of tab bar; shows About (version, author, GitHub link) and open-source license info
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
   - Multiple tabs can be stacked vertically in the split area
-  - Click **✕** on a split tab header to unsplit and return it to the tab bar
+  - Split tab headers show **✕** (unsplit) and **📤** upload button (when upload is enabled)
   - Split state persists across page reloads (saved to localStorage)
   - On narrow screens (≤ 768px), the split pane becomes a slide-out drawer toggled by a floating button
 - **Copy on select** — selecting text in the terminal automatically copies to clipboard
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
 - **Login page** — automatic login overlay when password is set; token stored in session
-- **Dynamic header** — Shows logo, hostname, working directory; switches to remote agent info when viewing remote tabs
+- **Dynamic header** — Shows logo, hostname, working directory (left-truncated on narrow screens); switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
 - **Disconnect overlay** — appears on WebSocket disconnect; click Reconnect to retry (all input blocked while disconnected)
 - **Upload modal** — when `--upload` is enabled, an upload icon appears next to the workspace path for tabs that support it (per-tab); supports drag-and-drop, progress bar, and duplicate file rejection. Agent tabs also show upload when the agent runs with `--upload`.
@@ -238,7 +242,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.7`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.4.8`).
 
 ## Platform Notes
 
