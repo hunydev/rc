@@ -293,18 +293,49 @@
     #menu-popup {
       display: none; position: absolute; right: 0; top: 100%;
       background: #181825; border: 1px solid #313244; border-radius: 8px;
-      padding: 12px 16px; min-width: 260px; z-index: 300;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4); font-size: 12px; color: #a6adc8;
+      padding: 6px 0; min-width: 200px; z-index: 300;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4); font-size: 13px; color: #a6adc8;
     }
     #menu-popup.visible { display: block; }
-    #menu-popup h4 { color: #89b4fa; margin: 0 0 6px; font-size: 13px; }
-    #menu-popup .menu-section { margin-bottom: 10px; }
-    #menu-popup .menu-section:last-child { margin-bottom: 0; }
-    #menu-popup a { color: #89b4fa; text-decoration: none; }
-    #menu-popup a:hover { text-decoration: underline; }
-    #menu-popup .menu-sep { border-top: 1px solid #313244; margin: 8px 0; }
-    #menu-popup .dep-item { color: #6c7086; margin: 2px 0; }
-    #menu-popup .dep-item a { color: #a6adc8; }
+    .menu-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px; cursor: pointer; color: #cdd6f4;
+      transition: background 0.12s; border: none; background: none;
+      width: 100%; font-size: 13px; font-family: inherit; text-align: left;
+    }
+    .menu-item:hover { background: #313244; }
+    .menu-item svg { flex-shrink: 0; color: #6c7086; }
+    .menu-item.danger { color: #f38ba8; }
+    .menu-item.danger svg { color: #f38ba8; }
+    .menu-item.danger:hover { background: rgba(243,139,168,0.1); }
+    .menu-sep { border-top: 1px solid #313244; margin: 4px 0; }
+
+    /* ───── Info modal ───── */
+    #info-modal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 400;
+      justify-content: center; align-items: center;
+    }
+    #info-modal.visible { display: flex; }
+    .info-box {
+      background: #181825; padding: 24px 28px; border-radius: 12px;
+      border: 1px solid #313244; width: 380px; max-width: 90vw;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .info-box h3 { color: #89b4fa; margin: 0 0 12px; font-size: 16px; }
+    .info-box .info-row { color: #a6adc8; font-size: 13px; margin: 4px 0; }
+    .info-box .info-row a { color: #89b4fa; text-decoration: none; }
+    .info-box .info-row a:hover { text-decoration: underline; }
+    .info-box .info-sep { border-top: 1px solid #313244; margin: 12px 0; }
+    .info-box .dep-item { color: #6c7086; margin: 4px 0; font-size: 12px; }
+    .info-box .dep-item a { color: #a6adc8; text-decoration: none; }
+    .info-box .dep-item a:hover { text-decoration: underline; }
+    .info-box .info-close {
+      margin-top: 16px; width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
+      font-size: 13px; cursor: pointer; transition: background 0.15s;
+    }
+    .info-box .info-close:hover { background: #313244; }
 
     #upload-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -365,22 +396,23 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
       </button>
       <div id="menu-popup">
-        <div class="menu-section">
-          <h4>About</h4>
-          <div><strong>rc</strong> — Remote Control</div>
-          <div>Version: <span id="menu-version">dev</span></div>
-          <div>Author: <a href="https://github.com/hunydev" target="_blank" rel="noopener">hunydev</a></div>
-          <div><a href="https://github.com/hunydev/rc" target="_blank" rel="noopener">GitHub Repository</a></div>
-        </div>
+        <button class="menu-item" id="menu-close-dc">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Close disconnected tabs
+        </button>
+        <button class="menu-item" id="menu-reset-order">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          Reset tab order
+        </button>
         <div class="menu-sep"></div>
-        <div class="menu-section">
-          <h4>Open Source Licenses</h4>
-          <div class="dep-item"><a href="https://github.com/xtermjs/xterm.js" target="_blank" rel="noopener">xterm.js</a> — MIT</div>
-          <div class="dep-item"><a href="https://github.com/spf13/cobra" target="_blank" rel="noopener">spf13/cobra</a> — Apache-2.0</div>
-          <div class="dep-item"><a href="https://github.com/creack/pty" target="_blank" rel="noopener">creack/pty</a> — MIT</div>
-          <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
-          <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
-        </div>
+        <button class="menu-item" id="menu-about">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          About &amp; Licenses
+        </button>
+        <button class="menu-item danger" id="menu-logout" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Logout
+        </button>
       </div>
     </div>
     <div id="main-area">
@@ -413,6 +445,25 @@
       <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
       <button class="login-submit" id="login-btn">Login</button>
       <p id="login-error">Invalid password</p>
+    </div>
+  </div>
+
+  <!-- Info Modal (About & Licenses) -->
+  <div id="info-modal">
+    <div class="info-box">
+      <h3>About rc</h3>
+      <div class="info-row"><strong>rc</strong> — Remote Control</div>
+      <div class="info-row">Version: <span id="menu-version">dev</span></div>
+      <div class="info-row">Author: <a href="https://github.com/hunydev" target="_blank" rel="noopener">hunydev</a></div>
+      <div class="info-row"><a href="https://github.com/hunydev/rc" target="_blank" rel="noopener">GitHub Repository</a></div>
+      <div class="info-sep"></div>
+      <h3>Open Source Licenses</h3>
+      <div class="dep-item"><a href="https://github.com/xtermjs/xterm.js" target="_blank" rel="noopener">xterm.js</a> — MIT</div>
+      <div class="dep-item"><a href="https://github.com/spf13/cobra" target="_blank" rel="noopener">spf13/cobra</a> — Apache-2.0</div>
+      <div class="dep-item"><a href="https://github.com/creack/pty" target="_blank" rel="noopener">creack/pty</a> — MIT</div>
+      <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
+      <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
+      <button class="info-close" id="info-close">Close</button>
     </div>
   </div>
 
@@ -498,6 +549,11 @@
     const menuBtn = document.getElementById('tab-menu-btn');
     const menuPopup = document.getElementById('menu-popup');
     const menuVersion = document.getElementById('menu-version');
+    const infoModal = document.getElementById('info-modal');
+    const menuCloseDc = document.getElementById('menu-close-dc');
+    const menuResetOrder = document.getElementById('menu-reset-order');
+    const menuAbout = document.getElementById('menu-about');
+    const menuLogout = document.getElementById('menu-logout');
 
     // ───── Multi-Tab State ─────
     let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta, split, ...}]
@@ -1394,12 +1450,63 @@
     // ───── Menu popup toggle ─────
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      // Show/hide logout based on auth state
+      menuLogout.style.display = authRequired && authToken ? '' : 'none';
       menuPopup.classList.toggle('visible');
     });
     document.addEventListener('click', (e) => {
       if (!menuPopup.contains(e.target) && e.target !== menuBtn) {
         menuPopup.classList.remove('visible');
       }
+    });
+
+    // Close disconnected tabs
+    menuCloseDc.addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      tabs.forEach((t, i) => {
+        if (t && !t.removed && t.remote && t.status === 'disconnected') {
+          sendWS({ type: 'close_tab', tab: i });
+        }
+      });
+    });
+
+    // Reset tab order
+    menuResetOrder.addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      localStorage.removeItem('rc-tab-order');
+      localStorage.removeItem('rc-split-tabs');
+      // Rebuild tab order from server indices
+      const ordered = [];
+      tabScroll.innerHTML = '';
+      tabs.forEach((t, i) => {
+        if (t && !t.removed && !t.split) {
+          tabScroll.appendChild(t.tabEl);
+          ordered.push(i);
+        }
+      });
+      if (ordered.length > 0 && !ordered.includes(activeTab)) {
+        switchTab(ordered[0]);
+      }
+    });
+
+    // About & Licenses
+    menuAbout.addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      infoModal.classList.add('visible');
+    });
+    document.getElementById('info-close').addEventListener('click', () => {
+      infoModal.classList.remove('visible');
+    });
+    infoModal.addEventListener('click', (e) => {
+      if (e.target === infoModal) infoModal.classList.remove('visible');
+    });
+
+    // Logout
+    menuLogout.addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      authToken = '';
+      sessionStorage.removeItem('rc-token');
+      location.reload();
     });
 
     window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
