@@ -50,8 +50,7 @@
       scrollbar-width: none; align-items: center;
     }
     #tab-scroll::-webkit-scrollbar { display: none; }
-    #tab-scroll .tab-item { display: none; }
-    #tab-bar.visible .tab-item { display: flex; }
+    #tab-scroll .tab-item { display: flex; }
     .tab-item {
       padding: 6px 16px; font-size: 13px; color: #6c7086; cursor: pointer;
       border-bottom: 2px solid transparent; white-space: nowrap;
@@ -113,10 +112,15 @@
     }
     .split-header .split-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .split-header .split-unsplit {
-      display: none; cursor: pointer; font-size: 13px; color: #6c7086; padding: 0 2px;
+      cursor: pointer; font-size: 13px; color: #6c7086; padding: 0 2px;
     }
     .split-header .split-unsplit:hover { color: #f38ba8; }
-    .split-header:hover .split-unsplit { display: inline; }
+    .split-header .split-upload {
+      background: none; border: none; color: #6c7086; cursor: pointer;
+      padding: 0 4px; line-height: 1; transition: color 0.15s;
+    }
+    .split-header .split-upload:hover { color: #89b4fa; }
+    .split-header .split-actions { display: flex; align-items: center; gap: 4px; }
     .split-terminal { flex: 1; position: relative; padding: 4px; min-height: 0; }
     .split-terminal .term-wrapper { display: block; }
 
@@ -343,8 +347,8 @@
 <body>
   <div id="app">
     <div id="header">
-      <img src="logo.svg" alt="rc" style="height:18px;width:18px;margin-right:6px;vertical-align:middle;">
-      <span class="title">rc</span>
+      <img src="logo.svg" alt="rc" style="height:18px;width:18px;margin-right:4px;">
+      <span class="title" style="line-height:18px;">rc</span>
       <span class="info" id="header-info"></span>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
@@ -660,9 +664,6 @@
 
       tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, splitBtn, meta, split: false, splitEntry: null, lastOutputAt: Date.now() };
 
-      // Show tab bar when more than 1 tab
-      if (tabs.filter(Boolean).length > 1) tabBar.classList.add('visible');
-
       if (isFirst) {
         activeTab = idx;
         t.focus();
@@ -767,13 +768,24 @@
       const nameSpan = document.createElement('span');
       nameSpan.className = 'split-name';
       nameSpan.textContent = t.name;
+      const actions = document.createElement('span');
+      actions.className = 'split-actions';
+      if (t.meta && t.meta.upload) {
+        const splitUploadBtn = document.createElement('button');
+        splitUploadBtn.className = 'split-upload';
+        splitUploadBtn.title = 'Upload file';
+        splitUploadBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+        splitUploadBtn.addEventListener('click', () => openUploadForTab(idx));
+        actions.appendChild(splitUploadBtn);
+      }
       const unsplitBtn = document.createElement('span');
       unsplitBtn.className = 'split-unsplit';
       unsplitBtn.textContent = '✕';
       unsplitBtn.title = 'Unsplit';
       unsplitBtn.addEventListener('click', () => unsplitTab(idx));
+      actions.appendChild(unsplitBtn);
       header.appendChild(nameSpan);
-      header.appendChild(unsplitBtn);
+      header.appendChild(actions);
 
       const termArea = document.createElement('div');
       termArea.className = 'split-terminal';
@@ -1130,6 +1142,7 @@
     }
 
     // ───── Upload ─────
+    let uploadTargetTab = null;
     function resetUploadModal() {
       uploadDrop.style.display = '';
       uploadProgress.style.display = 'none';
@@ -1141,9 +1154,14 @@
       uploadFile.value = '';
     }
 
-    uploadBtn.addEventListener('click', () => {
+    function openUploadForTab(tabIdx) {
+      uploadTargetTab = tabIdx;
       resetUploadModal();
       uploadModal.classList.add('visible');
+    }
+
+    uploadBtn.addEventListener('click', () => {
+      openUploadForTab(activeTab);
     });
 
     uploadClose.addEventListener('click', () => {
@@ -1175,7 +1193,7 @@
       form.append('file', file);
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', routePrefix + '/upload?tab=' + activeTab);
+      xhr.open('POST', routePrefix + '/upload?tab=' + (uploadTargetTab != null ? uploadTargetTab : activeTab));
       if (authToken) xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
 
       xhr.upload.addEventListener('progress', (e) => {
@@ -1303,7 +1321,6 @@
                   if (nextIdx >= 0) switchTab(nextIdx);
                 }
                 const visibleCount = tabs.filter(tt => tt && !tt.removed).length;
-                if (visibleCount <= 1) tabBar.classList.remove('visible');
               }
               break;
             }
