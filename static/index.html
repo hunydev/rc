@@ -42,11 +42,15 @@
     #tab-bar {
       display: flex; position: relative;
       background: #181825; border-bottom: 1px solid #313244;
-      padding: 2px 12px; gap: 2px; overflow-x: auto; flex-shrink: 0;
+      flex-shrink: 0;
+    }
+    #tab-scroll {
+      display: flex; flex: 1; min-width: 0;
+      padding: 2px 8px; gap: 2px; overflow-x: auto;
       scrollbar-width: none; align-items: center;
     }
-    #tab-bar::-webkit-scrollbar { display: none; }
-    #tab-bar .tab-item { display: none; }
+    #tab-scroll::-webkit-scrollbar { display: none; }
+    #tab-scroll .tab-item { display: none; }
     #tab-bar.visible .tab-item { display: flex; }
     .tab-item {
       padding: 6px 16px; font-size: 13px; color: #6c7086; cursor: pointer;
@@ -260,26 +264,25 @@
 
     /* ───── Upload (inline icon next to workspace) ───── */
     #upload-btn {
-      display: none; background: none; border: none; color: #6c7086; cursor: pointer;
-      padding: 0 2px; line-height: 1; vertical-align: middle; flex-shrink: 0;
+      background: none; border: none; color: #6c7086; cursor: pointer;
+      padding: 0 0 0 6px; line-height: 1; vertical-align: middle; flex-shrink: 0;
       transition: color 0.15s;
     }
     #upload-btn:hover { color: #89b4fa; }
-    #upload-btn.visible { display: inline; }
 
     /* ───── Tab-bar menu ───── */
     #tab-menu-btn {
       display: flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; margin-left: auto; flex-shrink: 0;
-      background: none; border: 1px solid #313244; border-radius: 4px;
+      width: 32px; flex-shrink: 0;
+      background: none; border: none; border-left: 1px solid #313244;
       color: #6c7086; cursor: pointer; font-size: 14px; line-height: 1;
       transition: background 0.15s, color 0.15s;
     }
-    #tab-menu-btn:hover { background: #313244; color: #a6adc8; }
+    #tab-menu-btn:hover { background: #1e1e2e; color: #a6adc8; }
     #menu-popup {
-      display: none; position: absolute; right: 12px; top: 0;
+      display: none; position: absolute; right: 0; top: 100%;
       background: #181825; border: 1px solid #313244; border-radius: 8px;
-      padding: 12px 16px; min-width: 260px; z-index: 150;
+      padding: 12px 16px; min-width: 260px; z-index: 300;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4); font-size: 12px; color: #a6adc8;
     }
     #menu-popup.visible { display: block; }
@@ -343,10 +346,10 @@
       <img src="logo.svg" alt="rc" style="height:18px;width:18px;margin-right:6px;vertical-align:middle;">
       <span class="title">rc</span>
       <span class="info" id="header-info"></span>
-      <button id="upload-btn" title="Upload file"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
     <div id="tab-bar">
+      <div id="tab-scroll"></div>
       <button id="tab-menu-btn" title="Menu">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
       </button>
@@ -457,6 +460,7 @@
     const statusEl = document.getElementById('status');
     const headerInfo = document.getElementById('header-info');
     const tabBar = document.getElementById('tab-bar');
+    const tabScroll = document.getElementById('tab-scroll');
     const termContainer = document.getElementById('terminal-container');
     const splitPane = document.getElementById('split-pane');
     const splitToggle = document.getElementById('split-toggle');
@@ -467,7 +471,11 @@
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
     const pasteBtn = document.getElementById('paste-btn');
-    const uploadBtn = document.getElementById('upload-btn');
+    const uploadBtn = document.createElement('button');
+    uploadBtn.id = 'upload-btn';
+    uploadBtn.title = 'Upload file';
+    uploadBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+    uploadBtn.style.display = 'none';
     const uploadModal = document.getElementById('upload-modal');
     const uploadDrop = document.getElementById('upload-drop');
     const uploadFile = document.getElementById('upload-file');
@@ -561,7 +569,7 @@
       tabEl.addEventListener('dragend', () => {
         tabEl.classList.remove('dragging');
         dragSrcIdx = null;
-        tabBar.querySelectorAll('.tab-item').forEach(el => el.classList.remove('drag-over'));
+        tabScroll.querySelectorAll('.tab-item').forEach(el => el.classList.remove('drag-over'));
         saveTabOrder();
       });
       tabEl.addEventListener('dragover', (e) => {
@@ -577,7 +585,7 @@
         const srcTab = tabs[dragSrcIdx];
         if (!srcTab) return;
         // Move srcTab's tabEl before this tabEl
-        tabBar.insertBefore(srcTab.tabEl, tabEl);
+        tabScroll.insertBefore(srcTab.tabEl, tabEl);
         saveTabOrder();
       });
 
@@ -627,7 +635,7 @@
         tabEl.appendChild(splitBtn);
       }
       tabEl.addEventListener('click', () => switchTab(idx));
-      tabBar.insertBefore(tabEl, menuBtn);
+      tabScroll.appendChild(tabEl);
 
       // Wire up terminal I/O
       t.onData((data) => {
@@ -680,7 +688,7 @@
     // ───── Tab Order (drag-and-drop persistence) ─────
     function saveTabOrder() {
       const order = [];
-      tabBar.querySelectorAll('.tab-item').forEach(el => {
+      tabScroll.querySelectorAll('.tab-item').forEach(el => {
         order.push(parseInt(el.dataset.tabIdx));
       });
       try { localStorage.setItem('rc-tab-order', JSON.stringify(order)); } catch (e) {}
@@ -691,10 +699,10 @@
         if (!Array.isArray(saved)) return;
         // Reorder tab bar DOM to match saved order (only for indices that exist)
         const existing = new Set();
-        tabBar.querySelectorAll('.tab-item').forEach(el => existing.add(parseInt(el.dataset.tabIdx)));
+        tabScroll.querySelectorAll('.tab-item').forEach(el => existing.add(parseInt(el.dataset.tabIdx)));
         saved.forEach(idx => {
           if (existing.has(idx) && tabs[idx]) {
-            tabBar.insertBefore(tabs[idx].tabEl, menuBtn);
+            tabScroll.appendChild(tabs[idx].tabEl);
           }
         });
       } catch (e) {}
@@ -927,12 +935,13 @@
       if (workspace) {
         headerInfo.appendChild(document.createTextNode(workspace));
       }
-      // Show upload icon if current tab supports upload
+      // Append upload icon inline after workspace if current tab supports upload
       const tabUpload = t && t.meta && t.meta.upload;
       if (tabUpload) {
-        uploadBtn.classList.add('visible');
+        headerInfo.appendChild(uploadBtn);
+        uploadBtn.style.display = 'inline';
       } else {
-        uploadBtn.classList.remove('visible');
+        uploadBtn.style.display = 'none';
       }
     }
 
@@ -1341,7 +1350,7 @@
           e.stopPropagation();
           // Follow DOM order (reflects drag-and-drop reorder), exclude split/removed
           const visible = [];
-          tabBar.querySelectorAll('.tab-item').forEach(el => {
+          tabScroll.querySelectorAll('.tab-item').forEach(el => {
             const i = parseInt(el.dataset.tabIdx);
             if (tabs[i] && !tabs[i].removed && !tabs[i].split) visible.push(i);
           });

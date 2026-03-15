@@ -506,6 +506,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			Addr:      agentAddr,
 			NoRestart: ti.NoRestart,
 			Readonly:  ti.Readonly,
+			Upload:    ti.Upload,
 		}
 		addMsg := mustMarshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
 		h.broadcastToClients(addMsg)

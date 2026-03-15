@@ -215,6 +215,7 @@ func (a *Agent) connect() error {
 			Workspace: workspace,
 			NoRestart: a.noRestart,
 			Readonly:  a.readonly,
+			Upload:    a.upload,
 		}
 	}
 	regMsg := mustMarshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
