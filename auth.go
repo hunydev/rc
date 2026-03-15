@@ -23,7 +23,7 @@ func requireAuth(password string, next http.HandlerFunc) http.HandlerFunc {
 }
 
 // checkAuth validates the request against the given password.
-// Supports Authorization: Bearer <token> header and ?token=<token> query param.
+// Supports Authorization: Bearer <token> header and Sec-WebSocket-Protocol: auth-<token>.
 func checkAuth(r *http.Request, password string) bool {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
@@ -31,8 +31,12 @@ func checkAuth(r *http.Request, password string) bool {
 			return true
 		}
 	}
-	if r.URL.Query().Get("token") == password {
-		return true
+	// WebSocket subprotocol auth (browser cannot set Authorization header on WS)
+	for _, proto := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		proto = strings.TrimSpace(proto)
+		if strings.HasPrefix(proto, "auth-") && strings.TrimPrefix(proto, "auth-") == password {
+			return true
+		}
 	}
 	return false
 }

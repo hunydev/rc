@@ -39,12 +39,7 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 
 	sessions := make([]*agentSession, len(commands))
 	for i, cmd := range commands {
-		parts := strings.Fields(cmd)
-		cmdName := parts[0]
-		var cmdArgs []string
-		if len(parts) > 1 {
-			cmdArgs = parts[1:]
-		}
+		cmdName, cmdArgs := parseCommand(cmd)
 
 		buf := NewOutputBuffer(bufferSize)
 		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, cols, rows, buf)
@@ -74,6 +69,7 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
+		signal.Stop(sigChan)
 		log.Println("Agent shutting down...")
 		for _, s := range sessions {
 			s.PtyMgr.Close()
@@ -82,10 +78,9 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 	}()
 
 	// Start persistent output drain goroutines.
-	// These always read from outputCh so the PTY readLoop never blocks.
-	// When not connected to hub, output is discarded (kept in OutputBuffer).
 	for i, s := range sessions {
-		go agent.drainOutput(i, s)
+		idx, sess := i, s
+		safeGo("drainOutput", func() { agent.drainOutput(idx, sess) })
 	}
 
 	log.Printf("Agent mode: attaching to %s", agent.target)
@@ -171,16 +166,31 @@ func (a *Agent) connect() error {
 
 	writeCh := make(chan []byte, 256)
 
-	// Writer goroutine (serializes WebSocket writes)
+	// Writer goroutine with ping (serializes WebSocket writes)
 	writerDone := make(chan struct{})
-	go func() {
+	safeGo("agentWriter", func() {
 		defer close(writerDone)
-		for msg := range writeCh {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				return
+		ticker := time.NewTicker(wsPingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case msg, ok := <-writeCh:
+				conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if !ok {
+					conn.WriteMessage(websocket.CloseMessage, []byte{})
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					return
+				}
+			case <-ticker.C:
+				conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
 			}
 		}
-	}()
+	})
 
 	// Register with hub
 	hostname, _ := os.Hostname()
@@ -233,7 +243,13 @@ func (a *Agent) connect() error {
 		close(writeCh)
 	}()
 
-	// Read commands from hub (input, resize, restart)
+	// Read commands from hub with pong-based keepalive
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -255,10 +271,14 @@ func (a *Agent) connect() error {
 			if a.readonly {
 				continue
 			}
-			a.sessions[tab].PtyMgr.Write([]byte(msg.Data))
+			if err := a.sessions[tab].PtyMgr.Write([]byte(msg.Data)); err != nil {
+				log.Printf("Agent PTY write error (tab %d): %v", tab, err)
+			}
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
-				a.sessions[tab].PtyMgr.Resize(msg.Cols, msg.Rows)
+				if err := a.sessions[tab].PtyMgr.Resize(msg.Cols, msg.Rows); err != nil {
+					log.Printf("Agent PTY resize error (tab %d): %v", tab, err)
+				}
 			}
 		case "restart":
 			if a.noRestart {
@@ -273,8 +293,8 @@ func (a *Agent) connect() error {
 			statusMsg, _ := json.Marshal(WSMessage{Type: "status", Data: "restarted", Tab: tab})
 			a.sendToHub(statusMsg)
 			// Start new drain goroutine for the restarted process
-			_ = outputCh // drainOutput will call OutputChan() which returns the new channel
-			go a.drainOutput(tab, a.sessions[tab])
+			_ = outputCh
+			safeGo("drainOutput", func() { a.drainOutput(tab, a.sessions[tab]) })
 		}
 	}
 }

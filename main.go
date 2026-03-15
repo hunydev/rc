@@ -125,12 +125,7 @@ func run(cmd *cobra.Command, args []string) error {
 	sessions := make([]session, len(cfgCommands))
 
 	for i, cmd := range cfgCommands {
-		parts := strings.Fields(cmd)
-		cmdName := parts[0]
-		var cmdArgs []string
-		if len(parts) > 1 {
-			cmdArgs = parts[1:]
-		}
+		cmdName, cmdArgs := parseCommand(cmd)
 
 		buf := NewOutputBuffer(bufferBytes)
 		ptyMgr, err := NewPTYManager(cmdName, cmdArgs, uint16(cfgCols), uint16(cfgRows), buf)
@@ -306,7 +301,16 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wd, _ := os.Getwd()
-	destPath := filepath.Join(wd, filename)
+	realWd, _ := filepath.EvalSymlinks(wd)
+	destPath := filepath.Join(realWd, filename)
+
+	// Verify path stays within working directory
+	if !strings.HasPrefix(destPath, realWd+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid file path"})
+		return
+	}
 
 	// Check if file already exists — no overwrite
 	if _, err := os.Stat(destPath); err == nil {
@@ -341,5 +345,48 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		"name": filename,
 		"size": written,
 	})
+}
+
+// parseCommand splits a command string respecting single/double quotes and backslash escaping.
+func parseCommand(s string) (string, []string) {
+	var args []string
+	var cur strings.Builder
+	inSingle, inDouble, escaped := false, false, false
+
+	for _, r := range s {
+		if escaped {
+			cur.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' && !inSingle {
+			escaped = true
+			continue
+		}
+		if r == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if r == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if (r == ' ' || r == '\t') && !inSingle && !inDouble {
+			if cur.Len() > 0 {
+				args = append(args, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteRune(r)
+	}
+	if cur.Len() > 0 {
+		args = append(args, cur.String())
+	}
+
+	if len(args) == 0 {
+		return s, nil
+	}
+	return args[0], args[1:]
 }
 

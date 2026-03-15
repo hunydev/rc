@@ -3,13 +3,21 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	wsWriteWait  = 10 * time.Second
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = (wsPongWait * 9) / 10 // 54s
 )
 
 var upgrader = websocket.Upgrader{
@@ -63,6 +71,18 @@ func safeSend(ch chan<- []byte, msg []byte) {
 	case ch <- msg:
 	default:
 	}
+}
+
+// safeGo runs fn in a goroutine with panic recovery.
+func safeGo(name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered in %s: %v", name, r)
+			}
+		}()
+		fn()
+	}()
 }
 
 // Hub manages browser clients, local PTYs, and remote agents.
@@ -198,18 +218,28 @@ func (h *Hub) broadcastToClients(msg []byte) {
 
 // StartOutputPump reads from a local PTY's output channel and broadcasts to clients.
 func (h *Hub) StartOutputPump(tab int, outputCh <-chan []byte) {
-	go func() {
+	safeGo("outputPump", func() {
 		for data := range outputCh {
 			h.Broadcast(tab, data)
 		}
 		h.Broadcast(tab, []byte("\r\n\033[1;31m[rc] Process exited.\033[0m\r\n"))
 		h.BroadcastStatus(tab, "exited")
-	}()
+	})
 }
 
 // HandleWebSocket handles browser WebSocket connections.
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// Echo auth subprotocol in upgrade response
+	responseHeader := http.Header{}
+	for _, proto := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		proto = strings.TrimSpace(proto)
+		if strings.HasPrefix(proto, "auth-") {
+			responseHeader.Set("Sec-WebSocket-Protocol", proto)
+			break
+		}
+	}
+
+	conn, err := upgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
@@ -255,15 +285,32 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		client.send <- statusMsg
 	}
 
-	go h.writePump(client)
-	go h.readPump(client)
+	safeGo("writePump", func() { h.writePump(client) })
+	safeGo("readPump", func() { h.readPump(client) })
 }
 
 func (h *Hub) writePump(c *Client) {
-	defer c.conn.Close()
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			break
+	ticker := time.NewTicker(wsPingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case msg, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -277,6 +324,12 @@ func (h *Hub) readPump(c *Client) {
 		c.conn.Close()
 		log.Printf("Client disconnected (remaining: %d)", len(h.clients))
 	}()
+
+	c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -386,7 +439,10 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create tab entries for agent's commands
-	agentAddr := strings.Split(r.RemoteAddr, ":")[0]
+	agentAddr, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if agentAddr == "" {
+		agentAddr = r.RemoteAddr
+	}
 	agentUser := regMsg.Data // agent sends "user" in Data field
 	agentHostname := ""
 	agentWorkspace := ""
@@ -435,15 +491,32 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		h.broadcastToClients(addMsg)
 	}
 
-	// Agent writer goroutine
-	go func() {
-		defer conn.Close()
-		for msg := range agentConn.send {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				return
+	// Agent writer goroutine with ping
+	safeGo("agentWriter", func() {
+		ticker := time.NewTicker(wsPingPeriod)
+		defer func() {
+			ticker.Stop()
+			conn.Close()
+		}()
+		for {
+			select {
+			case msg, ok := <-agentConn.send:
+				conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if !ok {
+					conn.WriteMessage(websocket.CloseMessage, []byte{})
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					return
+				}
+			case <-ticker.C:
+				conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
 			}
 		}
-	}()
+	})
 
 	// Cleanup on agent disconnect
 	defer func() {
@@ -464,7 +537,13 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Agent disconnected (tabs %d-%d)", baseTab, baseTab+agentConn.numTabs-1)
 	}()
 
-	// Read messages from agent (output, status, error)
+	// Read messages from agent with pong-based keepalive
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {

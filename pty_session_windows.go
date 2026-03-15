@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -143,13 +144,52 @@ func newPTYSession(name string, args []string, cols, rows uint16) (*ptySession, 
 	}, nil
 }
 
-// buildCmdLine builds a Windows command line string.
+// buildCmdLine builds a Windows command line string with proper argument quoting.
 func buildCmdLine(name string, args []string) string {
-	line := name
-	for _, arg := range args {
-		line += " " + arg
+	parts := make([]string, 0, 1+len(args))
+	parts = append(parts, quoteWinArg(name))
+	for _, a := range args {
+		parts = append(parts, quoteWinArg(a))
 	}
-	return line
+	return strings.Join(parts, " ")
+}
+
+// quoteWinArg quotes a single argument for Windows command line if needed.
+func quoteWinArg(s string) string {
+	if s == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(s, " \t\"") {
+		return s
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' {
+			j := i
+			for j < len(s) && s[j] == '\\' {
+				j++
+			}
+			if j < len(s) && s[j] == '"' {
+				for k := i; k < j; k++ {
+					b.WriteString(`\\`)
+				}
+				b.WriteString(`\"`)
+				i = j
+			} else {
+				for k := i; k < j; k++ {
+					b.WriteByte('\\')
+				}
+				i = j - 1
+			}
+		} else if s[i] == '"' {
+			b.WriteString(`\"`)
+		} else {
+			b.WriteByte(s[i])
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func (s *ptySession) Read(p []byte) (int, error) {

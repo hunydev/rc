@@ -50,11 +50,10 @@ func (m *PTYManager) start(cols, rows uint16) error {
 	m.curRows = rows
 	m.outputCh = make(chan []byte, 256)
 
-	// Capture local references so goroutines are not affected by Restart()
 	sess := session
 	ch := m.outputCh
-	go m.readLoop(sess, ch)
-	go m.waitProcess(sess)
+	safeGo("readLoop", func() { m.readLoop(sess, ch) })
+	safeGo("waitProcess", func() { m.waitProcess(sess) })
 
 	log.Printf("PTY started: pid=%d, cmd=%s %v, size=%dx%d", session.Pid(), m.cmdName, m.cmdArgs, cols, rows)
 	return nil

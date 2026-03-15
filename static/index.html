@@ -1158,8 +1158,8 @@
       restartBar.classList.remove('visible');
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const tokenParam = authRequired && authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-      ws = new WebSocket(`${proto}//${location.host}${routePrefix}/ws${tokenParam}`);
+      const wsProtocols = authRequired && authToken ? [`auth-${authToken}`] : [];
+      ws = new WebSocket(`${proto}//${location.host}${routePrefix}/ws`, wsProtocols);
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
@@ -1292,6 +1292,8 @@
         }
       }
     }, true);
+
+    window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
 
     initApp();
   </script>
