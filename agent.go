@@ -23,6 +23,7 @@ type Agent struct {
 	password  string
 	noRestart bool
 	readonly  bool
+	upload    bool
 	mu        sync.RWMutex
 	writeCh   chan []byte
 }
@@ -34,7 +35,7 @@ type agentSession struct {
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
-func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int, noRestart, readonly bool) {
+func RunAgent(target string, commands []string, labels []string, cols, rows uint16, password string, bufferSize int, noRestart, readonly, upload bool) {
 	hostname, _ := os.Hostname()
 
 	sessions := make([]*agentSession, len(commands))
@@ -62,6 +63,7 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 		password:  password,
 		noRestart: noRestart,
 		readonly:  readonly,
+		upload:    upload,
 	}
 
 	// Graceful shutdown

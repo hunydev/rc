@@ -122,7 +122,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Agent mode: attach to a remote hub instead of running a server
 	if cfgAttach != "" {
-		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes, cfgNoRestart, cfgReadonly)
+		RunAgent(cfgAttach, cfgCommands, cfgLabels, uint16(cfgCols), uint16(cfgRows), cfgPassword, bufferBytes, cfgNoRestart, cfgReadonly, cfgUpload)
 		return nil
 	}
 
@@ -168,7 +168,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
-	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly)
+	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly, cfgUpload)
 	for i, s := range sessions {
 		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}
@@ -198,6 +198,7 @@ func run(cmd *cobra.Command, args []string) error {
 			"commands":  cfgCommands,
 			"route":     rp,
 			"upload":    cfgUpload,
+			"version":   version,
 		}); err != nil {
 			log.Printf("Failed to encode /info response: %v", err)
 		}

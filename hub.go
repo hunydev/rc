@@ -51,6 +51,7 @@ type TabEntry struct {
 	Addr      string // remote agent IP
 	NoRestart bool
 	Readonly  bool
+	Upload    bool
 
 	// For local tabs (nil for remote tabs)
 	PtyMgr *PTYManager
@@ -142,10 +143,11 @@ type TabInfo struct {
 	Addr      string `json:"addr,omitempty"`
 	NoRestart bool   `json:"noRestart,omitempty"`
 	Readonly  bool   `json:"readonly,omitempty"`
+	Upload    bool   `json:"upload,omitempty"`
 }
 
 // NewHub creates a new Hub with local PTY sessions.
-func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly bool) *Hub {
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly, upload bool) *Hub {
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	h := &Hub{
@@ -169,6 +171,7 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 			Workspace: workspace,
 			NoRestart: noRestart,
 			Readonly:  readonly,
+			Upload:    upload,
 		}
 	}
 	return h
@@ -187,6 +190,7 @@ func (h *Hub) getTabInfos() []TabInfo {
 			Addr:      t.Addr,
 			NoRestart: t.NoRestart,
 			Readonly:  t.Readonly,
+			Upload:    t.Upload,
 		}
 		if t.PtyMgr != nil {
 			infos[i].Pid = t.PtyMgr.Pid()
@@ -484,6 +488,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 			Addr:      agentAddr,
 			NoRestart: ti.NoRestart,
 			Readonly:  ti.Readonly,
+			Upload:    ti.Upload,
 		})
 	}
 	h.agents[agentConn] = true

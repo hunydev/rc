@@ -40,13 +40,14 @@
     .status-connecting { background: #f9e2af; color: #1e1e2e; }
 
     #tab-bar {
-      display: none; /* hidden when single tab */
+      display: flex; position: relative;
       background: #181825; border-bottom: 1px solid #313244;
-      padding: 0 12px; gap: 2px; overflow-x: auto; flex-shrink: 0;
-      scrollbar-width: none;
+      padding: 2px 12px; gap: 2px; overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: none; align-items: center;
     }
     #tab-bar::-webkit-scrollbar { display: none; }
-    #tab-bar.visible { display: flex; }
+    #tab-bar .tab-item { display: none; }
+    #tab-bar.visible .tab-item { display: flex; }
     .tab-item {
       padding: 6px 16px; font-size: 13px; color: #6c7086; cursor: pointer;
       border-bottom: 2px solid transparent; white-space: nowrap;
@@ -257,15 +258,39 @@
     .login-box .login-submit:hover { background: #74c7ec; }
     #login-error { display: none; color: #f38ba8; font-size: 12px; margin-top: 8px; }
 
-    /* ───── Upload ───── */
+    /* ───── Upload (inline icon next to workspace) ───── */
     #upload-btn {
-      display: none; background: none; border: 1px solid #45475a; border-radius: 6px;
-      color: #bac2de; padding: 2px 8px; font-size: 12px; cursor: pointer;
-      white-space: nowrap; flex-shrink: 0; line-height: 1;
-      transition: background 0.15s, border-color 0.15s;
+      display: none; background: none; border: none; color: #6c7086; cursor: pointer;
+      padding: 0 2px; line-height: 1; vertical-align: middle; flex-shrink: 0;
+      transition: color 0.15s;
     }
-    #upload-btn:hover { background: #313244; border-color: #585b70; }
-    #upload-btn.visible { display: inline-flex; align-items: center; gap: 4px; }
+    #upload-btn:hover { color: #89b4fa; }
+    #upload-btn.visible { display: inline; }
+
+    /* ───── Tab-bar menu ───── */
+    #tab-menu-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; margin-left: auto; flex-shrink: 0;
+      background: none; border: 1px solid #313244; border-radius: 4px;
+      color: #6c7086; cursor: pointer; font-size: 14px; line-height: 1;
+      transition: background 0.15s, color 0.15s;
+    }
+    #tab-menu-btn:hover { background: #313244; color: #a6adc8; }
+    #menu-popup {
+      display: none; position: absolute; right: 12px; top: 0;
+      background: #181825; border: 1px solid #313244; border-radius: 8px;
+      padding: 12px 16px; min-width: 260px; z-index: 150;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4); font-size: 12px; color: #a6adc8;
+    }
+    #menu-popup.visible { display: block; }
+    #menu-popup h4 { color: #89b4fa; margin: 0 0 6px; font-size: 13px; }
+    #menu-popup .menu-section { margin-bottom: 10px; }
+    #menu-popup .menu-section:last-child { margin-bottom: 0; }
+    #menu-popup a { color: #89b4fa; text-decoration: none; }
+    #menu-popup a:hover { text-decoration: underline; }
+    #menu-popup .menu-sep { border-top: 1px solid #313244; margin: 8px 0; }
+    #menu-popup .dep-item { color: #6c7086; margin: 2px 0; }
+    #menu-popup .dep-item a { color: #a6adc8; }
 
     #upload-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -318,10 +343,32 @@
       <img src="logo.svg" alt="rc" style="height:18px;width:18px;margin-right:6px;vertical-align:middle;">
       <span class="title">rc</span>
       <span class="info" id="header-info"></span>
-      <button id="upload-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload</button>
+      <button id="upload-btn" title="Upload file"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
-    <div id="tab-bar"></div>
+    <div id="tab-bar">
+      <button id="tab-menu-btn" title="Menu">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+      </button>
+      <div id="menu-popup">
+        <div class="menu-section">
+          <h4>About</h4>
+          <div><strong>rc</strong> — Remote Control</div>
+          <div>Version: <span id="menu-version">dev</span></div>
+          <div>Author: <a href="https://github.com/hunydev" target="_blank" rel="noopener">hunydev</a></div>
+          <div><a href="https://github.com/hunydev/rc" target="_blank" rel="noopener">GitHub Repository</a></div>
+        </div>
+        <div class="menu-sep"></div>
+        <div class="menu-section">
+          <h4>Open Source Licenses</h4>
+          <div class="dep-item"><a href="https://github.com/xtermjs/xterm.js" target="_blank" rel="noopener">xterm.js</a> — MIT</div>
+          <div class="dep-item"><a href="https://github.com/spf13/cobra" target="_blank" rel="noopener">spf13/cobra</a> — Apache-2.0</div>
+          <div class="dep-item"><a href="https://github.com/creack/pty" target="_blank" rel="noopener">creack/pty</a> — MIT</div>
+          <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
+          <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
+        </div>
+      </div>
+    </div>
     <div id="main-area">
       <div id="terminal-container"></div>
       <div id="split-pane"></div>
@@ -429,6 +476,9 @@
     const uploadLabel = document.getElementById('upload-label');
     const uploadResult = document.getElementById('upload-result');
     const uploadClose = document.getElementById('upload-close');
+    const menuBtn = document.getElementById('tab-menu-btn');
+    const menuPopup = document.getElementById('menu-popup');
+    const menuVersion = document.getElementById('menu-version');
 
     // ───── Multi-Tab State ─────
     let tabs = [];       // [{name, term, fitAddon, wrapper, status, dotEl, meta, split, ...}]
@@ -577,7 +627,7 @@
         tabEl.appendChild(splitBtn);
       }
       tabEl.addEventListener('click', () => switchTab(idx));
-      tabBar.appendChild(tabEl);
+      tabBar.insertBefore(tabEl, menuBtn);
 
       // Wire up terminal I/O
       t.onData((data) => {
@@ -644,7 +694,7 @@
         tabBar.querySelectorAll('.tab-item').forEach(el => existing.add(parseInt(el.dataset.tabIdx)));
         saved.forEach(idx => {
           if (existing.has(idx) && tabs[idx]) {
-            tabBar.appendChild(tabs[idx].tabEl);
+            tabBar.insertBefore(tabs[idx].tabEl, menuBtn);
           }
         });
       } catch (e) {}
@@ -849,7 +899,7 @@
         const info = await res.json();
         hubInfo = info;
         updateHeaderForTab();
-        if (info.upload) uploadBtn.classList.add('visible');
+        if (info.version) menuVersion.textContent = info.version;
       } catch (e) {
         headerInfo.textContent = '';
       }
@@ -876,6 +926,13 @@
       }
       if (workspace) {
         headerInfo.appendChild(document.createTextNode(workspace));
+      }
+      // Show upload icon if current tab supports upload
+      const tabUpload = t && t.meta && t.meta.upload;
+      if (tabUpload) {
+        uploadBtn.classList.add('visible');
+      } else {
+        uploadBtn.classList.remove('visible');
       }
     }
 
@@ -1292,6 +1349,17 @@
         }
       }
     }, true);
+
+    // ───── Menu popup toggle ─────
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menuPopup.classList.toggle('visible');
+    });
+    document.addEventListener('click', (e) => {
+      if (!menuPopup.contains(e.target) && e.target !== menuBtn) {
+        menuPopup.classList.remove('visible');
+      }
+    });
 
     window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
 
