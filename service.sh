@@ -60,13 +60,24 @@ SyslogIdentifier=${SERVICE_NAME}
 # 환경
 Environment=HOME=/home/${USER}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/${USER}/.local/bin:/home/${USER}/go/bin
-Environment=RC_PASSWORD=${PASSWORD}
+EnvironmentFile=-/etc/rc-env
 
 # 보안 강화
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=${PROJECT_DIR}
 PrivateTmp=true
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=multi-user.target
@@ -74,6 +85,15 @@ EOF
 
     sudo systemctl daemon-reload
     sudo systemctl enable "${SERVICE_NAME}"
+
+    # Write environment file for sensitive values (mode 600)
+    if [[ -n "$PASSWORD" ]]; then
+        echo "RC_PASSWORD=${PASSWORD}" | sudo tee /etc/rc-env > /dev/null
+        sudo chmod 600 /etc/rc-env
+        sudo chown root:root /etc/rc-env
+        info "비밀번호가 /etc/rc-env 에 저장됨 (mode 600)"
+    fi
+
     info "서비스 등록 완료: ${SERVICE_FILE}"
     info "시작하려면: ./service.sh start"
 }
@@ -90,6 +110,7 @@ do_uninstall() {
     if [[ -f "$SERVICE_FILE" ]]; then
         sudo systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
         sudo rm -f "$SERVICE_FILE"
+        sudo rm -f /etc/rc-env
         sudo systemctl daemon-reload
         info "서비스 해제 완료"
     else

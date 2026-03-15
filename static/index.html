@@ -442,6 +442,10 @@
     const routePrefix = location.pathname.replace(/\/(?:index\.html)?$/, '');
 
     function isConnected() { return ws && ws.readyState === WebSocket.OPEN; }
+    function getActiveTab() {
+      const t = tabs[activeTab];
+      return (t && !t.removed) ? t : null;
+    }
     let splitTabs = []; // indices of tabs in split pane (display order)
     let dragSrcIdx = null; // currently dragged tab index
 
@@ -765,7 +769,7 @@
 
     function refitAllTerminals() {
       // Refit active main tab
-      const act = tabs[activeTab];
+      const act = getActiveTab();
       if (act && !act.split) {
         setTimeout(() => {
           act.fitAddon.fit();
@@ -802,7 +806,7 @@
     }
 
     function updateTabStatus() {
-      const t = tabs[activeTab];
+      const t = getActiveTab();
       if (!t) return;
       if (t.status === 'exited') {
         setStatus('process exited', 'status-disconnected');
@@ -852,7 +856,7 @@
     }
 
     function updateHeaderForTab() {
-      const t = tabs[activeTab];
+      const t = getActiveTab();
       let hostname, workspace;
       if (t && t.meta && t.remote) {
         hostname = t.meta.hostname || '';
@@ -981,8 +985,8 @@
 
     function sendKey(keyId) {
       if (!isConnected()) return;
-      const t = tabs[activeTab];
-      if (t && t.meta && t.meta.readonly) return;
+      const t = getActiveTab();
+      if (!t || (t.meta && t.meta.readonly)) return;
       const seq = keyMap[keyId];
       if (seq) sendWS({ type: 'input', data: seq, tab: activeTab });
     }
@@ -1051,7 +1055,7 @@
     function doPaste() {
       if (!isConnected()) return;
       if (!navigator.clipboard || !navigator.clipboard.readText) return;
-      const t = tabs[activeTab];
+      const t = getActiveTab();
       if (!t || (t.meta && t.meta.readonly)) return;
       navigator.clipboard.readText().then(text => {
         if (text) sendWS({ type: 'input', data: text, tab: activeTab });
@@ -1160,8 +1164,9 @@
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
         // Send resize for active tab
-        if (tabs[activeTab]) {
-          sendWS({ type: 'resize', cols: tabs[activeTab].term.cols, rows: tabs[activeTab].term.rows, tab: activeTab });
+        const act = getActiveTab();
+        if (act) {
+          sendWS({ type: 'resize', cols: act.term.cols, rows: act.term.rows, tab: activeTab });
         }
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
@@ -1221,11 +1226,11 @@
             case 'tab_removed': {
               const t = tabs[msg.tab];
               if (t) {
-                // If it's a split tab, unsplit first
                 if (t.split) unsplitTab(msg.tab);
                 t.removed = true;
                 t.tabEl.style.display = 'none';
                 t.wrapper.style.display = 'none';
+                if (t.term) t.term.dispose();
                 if (msg.tab === activeTab) {
                   const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed && !tt.split);
                   if (nextIdx >= 0) switchTab(nextIdx);
@@ -1258,6 +1263,7 @@
     setInterval(() => {
       const now = Date.now();
       for (const t of Object.values(tabs)) {
+        if (!t) continue;
         if (t.status === 'running' && now - t.lastOutputAt > IDLE_THRESHOLD) {
           t.dotEl.classList.add('awaiting');
         }
