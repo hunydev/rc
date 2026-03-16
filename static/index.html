@@ -214,6 +214,15 @@
     }
     #dc-overlay .message button:hover { background: #74c7ec; }
 
+    /* ───── Copy Toast ───── */
+    #copy-toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #313244; color: #a6e3a1; padding: 6px 16px; border-radius: 8px;
+      font-size: 12px; opacity: 0; pointer-events: none; z-index: 500;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    #copy-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
     /* ───── Floating Helper Button & Panel ───── */
     #helper-fab {
       display: none;
@@ -449,16 +458,16 @@
   </div>
 
   <!-- Disconnected Overlay (reconnect) -->
-  <div id="dc-overlay">
+  <div id="dc-overlay" role="dialog" aria-label="Disconnected" aria-modal="true">
     <div class="message">
       <h3>Disconnected</h3>
       <p>The connection was lost. The process may still be running.</p>
-      <button onclick="connectWS()">Reconnect</button>
+      <button id="dc-reconnect-btn">Reconnect</button>
     </div>
   </div>
 
   <!-- Login Overlay -->
-  <div id="login-overlay">
+  <div id="login-overlay" role="dialog" aria-label="Login" aria-modal="true">
     <div class="login-box">
       <img src="logo.svg" alt="rc" style="height:32px;width:32px;margin-bottom:8px;">
       <h3>rc</h3>
@@ -470,7 +479,7 @@
   </div>
 
   <!-- Info Modal (About & Licenses) -->
-  <div id="info-modal">
+  <div id="info-modal" role="dialog" aria-label="About" aria-modal="true">
     <div class="info-box">
       <h3>About rc</h3>
       <div class="info-row"><strong>rc</strong> — Remote Control</div>
@@ -489,7 +498,7 @@
   </div>
 
   <!-- Upload Modal -->
-  <div id="upload-modal">
+  <div id="upload-modal" role="dialog" aria-label="Upload file" aria-modal="true">
     <div class="upload-box">
       <h3>Upload File</h3>
       <div class="upload-drop" id="upload-drop">
@@ -504,6 +513,9 @@
       <button class="upload-close" id="upload-close">Close</button>
     </div>
   </div>
+
+  <!-- Copy Toast -->
+  <div id="copy-toast">Copied</div>
 
   <!-- Floating Helper Button (mobile) -->
   <button id="helper-fab" aria-label="Helper keyboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="10" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="14" y2="8"/><line x1="18" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/></svg></button>
@@ -581,13 +593,16 @@
     let activeTab = 0;
     let ws = null;
     let reconnectTimer = null;
+    let reconnectDelay = 1000;
     let ctrlActive = false;
-    let tabsInitialized = false;
     let hubInfo = {}; // {hostname, workspace} from /info
     // Derive route prefix from current URL path (strip trailing /index.html or /)
     const routePrefix = location.pathname.replace(/\/(?:index\.html)?$/, '');
 
     function isConnected() { return ws && ws.readyState === WebSocket.OPEN; }
+    function sanitizeForTerminal(str) {
+      return String(str).replace(/[\x00-\x1f\x7f]/g, '').replace(/[<>&"']/g, '');
+    }
     function getActiveTab() {
       const t = tabs[activeTab];
       return (t && !t.removed) ? t : null;
@@ -643,7 +658,12 @@
       t.onSelectionChange(() => {
         const sel = t.getSelection();
         if (sel && navigator.clipboard) {
-          navigator.clipboard.writeText(sel).catch(() => {});
+          navigator.clipboard.writeText(sel).then(() => {
+            const toast = document.getElementById('copy-toast');
+            toast.classList.add('visible');
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => toast.classList.remove('visible'), 1200);
+          }).catch(() => {});
         }
       });
 
@@ -1026,23 +1046,19 @@
     }
 
     function refitAllTerminals() {
-      // Refit active main tab
-      const act = getActiveTab();
-      if (act && !act.split) {
-        setTimeout(() => {
+      requestAnimationFrame(() => {
+        const act = getActiveTab();
+        if (act && !act.split) {
           act.fitAddon.fit();
           sendWS({ type: 'resize', cols: act.term.cols, rows: act.term.rows, tab: activeTab });
-        }, 50);
-      }
-      // Refit all split tabs
-      splitTabs.forEach(idx => {
-        const t = tabs[idx];
-        if (t) {
-          setTimeout(() => {
+        }
+        splitTabs.forEach(idx => {
+          const t = tabs[idx];
+          if (t) {
             t.fitAddon.fit();
             sendWS({ type: 'resize', cols: t.term.cols, rows: t.term.rows, tab: idx });
-          }, 50);
-        }
+          }
+        });
       });
     }
 
@@ -1185,12 +1201,6 @@
       }
     }
 
-    async function hashSHA256(str) {
-      const buf = new TextEncoder().encode(str);
-      const hash = await crypto.subtle.digest('SHA-256', buf);
-      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
     async function doLogin() {
       const pwd = document.getElementById('login-password').value;
       if (!pwd) return;
@@ -1250,14 +1260,24 @@
     }
 
     // ───── Resize ─────
+    let resizeTimer = null;
     window.addEventListener('resize', () => {
-      tabs.forEach((t, i) => {
-        if ((i === activeTab && !t.split) || t.split) t.fitAddon.fit();
-      });
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        refitAllTerminals();
+      }, 100);
       // On wide screens, auto-dismiss the slide-in class (it's only for narrow)
       if (window.innerWidth > 768 && splitPane.classList.contains('slide-in')) {
         splitPane.classList.remove('slide-in');
       }
+    });
+
+    // ───── Reconnect Button ─────
+    document.getElementById('dc-reconnect-btn').addEventListener('click', () => {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectDelay = 1000;
+      connectWS();
     });
 
     // ───── Restart Button ─────
@@ -1282,18 +1302,24 @@
     helperFab.addEventListener('touchstart', (e) => { e.preventDefault(); blurTerminal(); }, { passive: false });
     helperPanel.addEventListener('touchstart', (e) => { e.preventDefault(); blurTerminal(); }, { passive: false });
 
-    let fabTouched = false;
-    helperFab.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      fabTouched = true;
-      helperPanel.classList.toggle('visible');
-    }, { passive: false });
-    helperFab.addEventListener('click', (e) => {
-      if (fabTouched) { fabTouched = false; return; }
-      e.stopPropagation();
-      helperPanel.classList.toggle('visible');
-    });
+    // Utility: attach both touchend and click to an element, preventing double-fire on touch devices
+    function onTap(el, fn) {
+      let touched = false;
+      el.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        touched = true;
+        fn(e);
+      }, { passive: false });
+      el.addEventListener('click', (e) => {
+        if (touched) { touched = false; return; }
+        e.preventDefault();
+        e.stopPropagation();
+        fn(e);
+      });
+    }
+
+    onTap(helperFab, () => helperPanel.classList.toggle('visible'));
 
     document.addEventListener('touchstart', (e) => {
       if (!helperPanel.contains(e.target) && e.target !== helperFab) {
@@ -1315,19 +1341,9 @@
     }
 
     helperPanel.querySelectorAll('button.key-btn[data-key]').forEach(btn => {
-      let touched = false;
-      btn.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        touched = true;
+      onTap(btn, () => {
         btn.style.background = '#585b70';
         setTimeout(() => btn.style.background = '', 120);
-        sendKey(btn.getAttribute('data-key'));
-      }, { passive: false });
-      btn.addEventListener('click', (e) => {
-        if (touched) { touched = false; return; }
-        e.preventDefault();
-        e.stopPropagation();
         sendKey(btn.getAttribute('data-key'));
       });
     });
@@ -1338,7 +1354,6 @@
       ctrlToggle.textContent = 'Ctrl \u23CE';
     }
 
-    let ctrlTouched = false;
     function activateOrDeactivateCtrl() {
       ctrlActive = !ctrlActive;
       if (ctrlActive) {
@@ -1348,33 +1363,9 @@
         deactivateCtrl();
       }
     }
-    ctrlToggle.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      ctrlTouched = true;
-      activateOrDeactivateCtrl();
-    }, { passive: false });
-    ctrlToggle.addEventListener('click', (e) => {
-      if (ctrlTouched) { ctrlTouched = false; return; }
-      e.preventDefault();
-      e.stopPropagation();
-      activateOrDeactivateCtrl();
-    });
+    onTap(ctrlToggle, activateOrDeactivateCtrl);
 
     // Paste button handler
-    let pasteTouched = false;
-    pasteBtn.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      pasteTouched = true;
-      doPaste();
-    }, { passive: false });
-    pasteBtn.addEventListener('click', (e) => {
-      if (pasteTouched) { pasteTouched = false; return; }
-      e.preventDefault();
-      e.stopPropagation();
-      doPaste();
-    });
     function doPaste() {
       if (!isConnected()) return;
       if (!navigator.clipboard || !navigator.clipboard.readText) return;
@@ -1384,6 +1375,7 @@
         if (text) sendWS({ type: 'input', data: text, tab: activeTab });
       }).catch(() => {});
     }
+    onTap(pasteBtn, doPaste);
 
     // ───── Upload ─────
     let uploadTargetTab = null;
@@ -1492,7 +1484,7 @@
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
-        // Delay initial resize to ensure layout is settled after tab creation
+        reconnectDelay = 1000; // reset backoff on successful connect
         setTimeout(() => refitAllTerminals(), 200);
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
@@ -1566,13 +1558,12 @@
                   const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed && !tt.split);
                   if (nextIdx >= 0) switchTab(nextIdx);
                 }
-                const visibleCount = tabs.filter(tt => tt && !tt.removed).length;
               }
               break;
             }
             case 'error': {
               const t = tabs[msg.tab];
-              if (t) t.term.write('\r\n\x1b[1;31m[rc] Error: ' + msg.data + '\x1b[0m\r\n');
+              if (t) t.term.write('\r\n\x1b[1;31m[rc] Error: ' + sanitizeForTerminal(msg.data) + '\x1b[0m\r\n');
               break;
             }
           }
@@ -1584,6 +1575,14 @@
       ws.onclose = () => {
         setStatus('disconnected', 'status-disconnected');
         dcOverlay.classList.add('visible');
+        // Auto-reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max)
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connectWS();
+          }, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        }
       };
 
       ws.onerror = () => ws.close();
