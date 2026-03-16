@@ -82,6 +82,18 @@ go build -o rc .
 
 # HTTPS with TLS certificate
 ./rc --tls-cert cert.pem --tls-key key.pem -c "bash"
+
+# Override default shell
+./rc --shell zsh
+
+# Limit concurrent browser connections
+./rc --max-connections 5 -c "bash"
+
+# Log to file instead of stderr
+./rc --log /var/log/rc.log -c "bash"
+
+# Auto-shutdown after 30 minutes with no connected clients
+./rc --timeout 30m -c "bash"
 ```
 
 Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) in your browser.
@@ -165,7 +177,11 @@ All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route
 | `--upload` | | `false` | Enable file upload to working directory (single file, no overwrite) |
 | `--tls-cert` | | — | TLS certificate file path (enables HTTPS; requires `--tls-key`) |
 | `--tls-key` | | — | TLS private key file path (requires `--tls-cert`) |
-| `--daemon` | `-d` | `false` | Run as background daemon (logs to `/tmp/rc-<pid>.log`) |
+| `--shell` | | — | Default shell when no `-c` is given (default: `bash` on Unix, `cmd.exe` on Windows) |
+| `--max-connections` | | `0` | Maximum concurrent WebSocket clients (0 = unlimited; agents not affected) |
+| `--log` | | — | Log file path (default: stderr). With `--daemon`, overrides `/tmp/` default. |
+| `--timeout` | | — | Auto-shutdown after idle duration with no clients (e.g. `30m`, `2h`) |
+| `--daemon` | `-d` | `false` | Run as background daemon (logs to `--log` path or `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
 | `--cols` | | `120` | Initial terminal columns |
@@ -260,7 +276,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.0`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.1`).
 
 ## Platform Notes
 
