@@ -400,8 +400,11 @@ func daemonize() {
 	cmd.SysProcAttr = daemonSysProcAttr()
 
 	// Redirect stdout/stderr to log file
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("rc-%d.log", os.Getpid()))
-	logFile, err := os.Create(logPath)
+	logPath := cfgLogFile
+	if logPath == "" {
+		logPath = filepath.Join(os.TempDir(), fmt.Sprintf("rc-%d.log", os.Getpid()))
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatalf("Failed to create log file: %v", err)
 	}
