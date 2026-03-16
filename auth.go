@@ -3,8 +3,13 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 )
 
 // hashPassword returns the SHA-256 hex digest of the given password.
@@ -49,4 +54,178 @@ func checkAuth(r *http.Request, passwordHash string) bool {
 		}
 	}
 	return false
+}
+
+// ───── Login rate limiter (progressive IP-based lockout) ─────
+
+// lockout tiers: after N cumulative failures, lock for the given duration.
+// Each tier is checked in order; the last matching tier applies.
+var lockoutTiers = []struct {
+	failures int
+	duration time.Duration
+}{
+	{5, 5 * time.Minute},
+	{10, 1 * time.Hour},
+	{20, 24 * time.Hour},
+}
+
+const loginDelay = 500 * time.Millisecond
+
+type ipRecord struct {
+	failures  int
+	lockedUntil time.Time
+}
+
+type loginRateLimiter struct {
+	mu      sync.Mutex
+	records map[string]*ipRecord
+}
+
+func newLoginRateLimiter() *loginRateLimiter {
+	rl := &loginRateLimiter{records: make(map[string]*ipRecord)}
+	// Periodically clean up expired records
+	go func() {
+		for range time.Tick(10 * time.Minute) {
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, rec := range rl.records {
+				if rec.failures == 0 || now.After(rec.lockedUntil.Add(24*time.Hour)) {
+					delete(rl.records, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *loginRateLimiter) extractIP(r *http.Request) string {
+	// Prefer X-Forwarded-For for reverse proxy setups
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.SplitN(xff, ",", 2)
+		ip := strings.TrimSpace(parts[0])
+		if ip != "" {
+			return ip
+		}
+	}
+	if xff := r.Header.Get("X-Real-Ip"); xff != "" {
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// check returns remaining lockout duration (0 = not locked)
+func (rl *loginRateLimiter) check(ip string) time.Duration {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rec, ok := rl.records[ip]
+	if !ok {
+		return 0
+	}
+	remaining := time.Until(rec.lockedUntil)
+	if remaining > 0 {
+		return remaining
+	}
+	return 0
+}
+
+func (rl *loginRateLimiter) recordFailure(ip string) time.Duration {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rec, ok := rl.records[ip]
+	if !ok {
+		rec = &ipRecord{}
+		rl.records[ip] = rec
+	}
+	rec.failures++
+	// Apply the highest matching lockout tier
+	var lockDuration time.Duration
+	for _, tier := range lockoutTiers {
+		if rec.failures >= tier.failures {
+			lockDuration = tier.duration
+		}
+	}
+	if lockDuration > 0 {
+		rec.lockedUntil = time.Now().Add(lockDuration)
+	}
+	return lockDuration
+}
+
+func (rl *loginRateLimiter) recordSuccess(ip string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	delete(rl.records, ip)
+}
+
+// handleLogin returns an HTTP handler for the /login endpoint.
+// Accepts POST with JSON body {"password":"..."}.
+// Applies a fixed delay + progressive IP-based rate limiting.
+func handleLogin(password string, rl *loginRateLimiter) http.HandlerFunc {
+	if password == "" {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"token":""}`))
+		}
+	}
+	hashed := hashPassword(password)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		ip := rl.extractIP(r)
+
+		// Check if IP is currently locked out
+		if remaining := rl.check(ip); remaining > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", strings.TrimRight(remaining.Round(time.Second).String(), "0s")+"s")
+			w.WriteHeader(http.StatusTooManyRequests)
+			secs := int(remaining.Seconds())
+			if secs < 1 {
+				secs = 1
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":       "too_many_attempts",
+				"retry_after": secs,
+			})
+			return
+		}
+
+		// Anti brute-force delay
+		time.Sleep(loginDelay)
+
+		var body struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Password == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid_request"}`))
+			return
+		}
+
+		inputHash := hashPassword(body.Password)
+		if inputHash != hashed {
+			lockDuration := rl.recordFailure(ip)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			resp := map[string]interface{}{"error": "invalid_password"}
+			if lockDuration > 0 {
+				secs := int(lockDuration.Seconds())
+				resp["locked_for"] = secs
+				log.Printf("Login: IP %s locked for %v after failed attempt", ip, lockDuration)
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Success — clear failures and return token
+		rl.recordSuccess(ip)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"token": hashed})
+	}
 }

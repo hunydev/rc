@@ -266,6 +266,10 @@ func run(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc(rp+"/ws", requireAuth(cfgPassword, hub.HandleWebSocket))
 	mux.HandleFunc(rp+"/attach", requireAuth(cfgPassword, hub.HandleAttach))
 
+	// Login endpoint with rate limiting (separate from Bearer token auth)
+	loginRL := newLoginRateLimiter()
+	mux.HandleFunc(rp+"/login", handleLogin(cfgPassword, loginRL))
+
 	mux.HandleFunc(rp+"/info", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		info := map[string]interface{}{

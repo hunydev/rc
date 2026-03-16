@@ -1194,25 +1194,59 @@
     async function doLogin() {
       const pwd = document.getElementById('login-password').value;
       if (!pwd) return;
+      const loginBtn = document.getElementById('login-btn');
+      const loginError = document.getElementById('login-error');
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Logging in…';
+      loginError.style.display = 'none';
       try {
-        const hashed = await hashSHA256(pwd);
-        const res = await fetch(routePrefix + '/info', { headers: { 'Authorization': 'Bearer ' + hashed } });
+        const res = await fetch(routePrefix + '/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
         if (res.ok) {
-          authToken = hashed;
+          const data = await res.json();
+          authToken = data.token;
           authRequired = true;
           sessionStorage.setItem('rc-token', authToken);
-          await loadHeaderFromInfo(res);
+          // Fetch info with the token
+          const infoRes = await fetch(routePrefix + '/info', { headers: authHeaders() });
+          if (infoRes.ok) await loadHeaderFromInfo(infoRes);
           document.getElementById('login-overlay').classList.remove('visible');
           document.getElementById('app').classList.add('ready');
           connectWS();
+        } else if (res.status === 429) {
+          const data = await res.json();
+          const secs = data.retry_after || 60;
+          loginError.textContent = 'Too many attempts. Try again in ' + formatLockTime(secs) + '.';
+          loginError.style.display = 'block';
+          document.getElementById('login-password').value = '';
+          document.getElementById('login-password').focus();
         } else {
-          document.getElementById('login-error').style.display = 'block';
+          const data = await res.json().catch(() => ({}));
+          if (data.locked_for) {
+            loginError.textContent = 'Invalid password. Locked for ' + formatLockTime(data.locked_for) + '.';
+          } else {
+            loginError.textContent = 'Invalid password';
+          }
+          loginError.style.display = 'block';
           document.getElementById('login-password').value = '';
           document.getElementById('login-password').focus();
         }
       } catch (e) {
-        document.getElementById('login-error').style.display = 'block';
+        loginError.textContent = 'Connection error';
+        loginError.style.display = 'block';
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Login';
       }
+    }
+
+    function formatLockTime(secs) {
+      if (secs >= 3600) return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
+      if (secs >= 60) return Math.floor(secs / 60) + 'm';
+      return secs + 's';
     }
 
     // ───── Resize ─────
