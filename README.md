@@ -276,7 +276,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.1`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.2`).
 
 ## Platform Notes
 
