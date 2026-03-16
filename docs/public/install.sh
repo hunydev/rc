@@ -75,14 +75,15 @@ download_and_install() {
   local arch="$3"
   local dir="$4"
 
-  local filename="${BINARY_NAME}-${os}-${arch}"
-  local url="https://github.com/${REPO}/releases/download/${version}/${filename}"
+  local archive="rc_${version}_${os}_${arch}.tar.gz"
+  local url="https://github.com/${REPO}/releases/download/${version}/${archive}"
   local tmp
   tmp="$(mktemp -d)"
 
   info "Downloading rc ${version} (${os}/${arch})..."
-  curl -fsSL -o "${tmp}/${BINARY_NAME}" "$url" || error "Download failed: $url"
+  curl -fsSL -o "${tmp}/${archive}" "$url" || error "Download failed: $url"
 
+  tar xzf "${tmp}/${archive}" -C "$tmp" || error "Extraction failed"
   chmod +x "${tmp}/${BINARY_NAME}"
 
   # Install to target directory

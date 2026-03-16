@@ -15,17 +15,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux
           - goos: linux
             goarch: amd64
           - goos: linux
             goarch: arm64
-          # macOS
           - goos: darwin
             goarch: amd64
           - goos: darwin
             goarch: arm64
-          # Windows
           - goos: windows
             goarch: amd64
           - goos: windows
@@ -38,24 +35,39 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
-          OUTPUT="rc-${GOOS}-${GOARCH}${EXT}"
           VERSION="${{ github.event.release.tag_name }}"
           if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$'; then
             echo "::error::Invalid tag format: $VERSION"
             exit 1
           fi
-          CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o "$OUTPUT" .
-          echo "ARTIFACT=$OUTPUT" >> "$GITHUB_ENV"
+
+          BINARY="rc"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then
+            EXT=".exe"
+            BINARY="rc.exe"
+          fi
+
+          CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+
+          ARCHIVE_BASE="rc_${VERSION}_${GOOS}_${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            ARCHIVE="${ARCHIVE_BASE}.zip"
+            zip "$ARCHIVE" "$BINARY"
+          else
+            ARCHIVE="${ARCHIVE_BASE}.tar.gz"
+            tar czf "$ARCHIVE" "$BINARY"
+          fi
+
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" "${{ env.ARTIFACT }}" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" "${{ env.ARCHIVE }}" --clobber

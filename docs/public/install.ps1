@@ -25,8 +25,8 @@ function Get-LatestVersion {
 
 $arch = Get-Arch
 $version = Get-LatestVersion
-$filename = "rc-windows-${arch}.exe"
-$url = "https://github.com/$REPO/releases/download/$version/$filename"
+$archive = "rc_${version}_windows_${arch}.zip"
+$url = "https://github.com/$REPO/releases/download/$version/$archive"
 $installDir = "$env:LOCALAPPDATA\rc"
 $binPath = "$installDir\rc.exe"
 
@@ -36,8 +36,12 @@ if (!(Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
 
+$tmpZip = "$env:TEMP\$archive"
 Write-Host "Downloading $url..."
-Invoke-WebRequest -Uri $url -OutFile $binPath -UseBasicParsing
+Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing
+
+Expand-Archive -Path $tmpZip -DestinationPath $installDir -Force
+Remove-Item $tmpZip -ErrorAction SilentlyContinue
 
 # Add to PATH if not already present
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
