@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -57,6 +58,7 @@ var (
 	cfgMaxConnections int
 	cfgLogFile        string
 	cfgTimeout        string
+	trustedProxy      bool
 )
 
 var rootCmd = &cobra.Command{
@@ -103,6 +105,7 @@ func init() {
 	f.IntVar(&cfgMaxConnections, "max-connections", 0, "Maximum concurrent WebSocket clients (0 = unlimited)")
 	f.StringVar(&cfgLogFile, "log", "", "Log file path (default: stderr)")
 	f.StringVar(&cfgTimeout, "timeout", "", "Auto-shutdown after idle duration with no clients (e.g. 30m, 2h)")
+	f.BoolVar(&trustedProxy, "trusted-proxy", false, "Trust X-Forwarded-For / X-Real-Ip headers (set when behind a reverse proxy)")
 }
 
 func main() {
@@ -317,15 +320,18 @@ func run(cmd *cobra.Command, args []string) error {
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	var shutdownOnce sync.Once
 	shutdownFunc := func() {
-		log.Println("Shutting down...")
-		for _, s := range sessions {
-			s.PtyMgr.Close()
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		server.Shutdown(ctx)
-		os.Exit(0)
+		shutdownOnce.Do(func() {
+			log.Println("Shutting down...")
+			for _, s := range sessions {
+				s.PtyMgr.Close()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			server.Shutdown(ctx)
+			os.Exit(0)
+		})
 	}
 	go func() {
 		<-sigChan

@@ -2,8 +2,10 @@ package main
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -42,15 +44,19 @@ func requireAuth(password string, next http.HandlerFunc) http.HandlerFunc {
 func checkAuth(r *http.Request, passwordHash string) bool {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
-		if strings.TrimPrefix(auth, "Bearer ") == passwordHash {
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
 			return true
 		}
 	}
 	// WebSocket subprotocol auth (browser cannot set Authorization header on WS)
 	for _, proto := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		proto = strings.TrimSpace(proto)
-		if strings.HasPrefix(proto, "auth-") && strings.TrimPrefix(proto, "auth-") == passwordHash {
-			return true
+		if strings.HasPrefix(proto, "auth-") {
+			token := strings.TrimPrefix(proto, "auth-")
+			if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
+				return true
+			}
 		}
 	}
 	return false
@@ -100,16 +106,18 @@ func newLoginRateLimiter() *loginRateLimiter {
 }
 
 func (rl *loginRateLimiter) extractIP(r *http.Request) string {
-	// Prefer X-Forwarded-For for reverse proxy setups
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.SplitN(xff, ",", 2)
-		ip := strings.TrimSpace(parts[0])
-		if ip != "" {
-			return ip
+	// Only trust proxy headers when --trusted-proxy is enabled
+	if trustedProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.SplitN(xff, ",", 2)
+			ip := strings.TrimSpace(parts[0])
+			if ip != "" {
+				return ip
+			}
 		}
-	}
-	if xff := r.Header.Get("X-Real-Ip"); xff != "" {
-		return strings.TrimSpace(xff)
+		if xff := r.Header.Get("X-Real-Ip"); xff != "" {
+			return strings.TrimSpace(xff)
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -182,7 +190,7 @@ func handleLogin(password string, rl *loginRateLimiter) http.HandlerFunc {
 		// Check if IP is currently locked out
 		if remaining := rl.check(ip); remaining > 0 {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Retry-After", strings.TrimRight(remaining.Round(time.Second).String(), "0s")+"s")
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(remaining.Seconds())+1))
 			w.WriteHeader(http.StatusTooManyRequests)
 			secs := int(remaining.Seconds())
 			if secs < 1 {
@@ -209,7 +217,7 @@ func handleLogin(password string, rl *loginRateLimiter) http.HandlerFunc {
 		}
 
 		inputHash := hashPassword(body.Password)
-		if inputHash != hashed {
+		if subtle.ConstantTimeCompare([]byte(inputHash), []byte(hashed)) != 1 {
 			lockDuration := rl.recordFailure(ip)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)

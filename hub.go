@@ -623,13 +623,15 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read registration message
+	// Read registration message (with deadline to prevent hanging connections)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
 		log.Printf("Agent registration error: %v", err)
 		conn.Close()
 		return
 	}
+	conn.SetReadDeadline(time.Time{}) // clear deadline
 
 	var regMsg WSMessage
 	if err := json.Unmarshal(raw, &regMsg); err != nil || regMsg.Type != "register" {
