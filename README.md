@@ -256,7 +256,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Copy on select** — selecting text in the terminal automatically copies to clipboard
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
-- **Login page** — automatic login overlay when password is set; token stored in session
+- **Login page** — automatic login overlay when password is set; token stored in session. No flash of terminal content before login screen.
 - **Dynamic header** — Shows logo, hostname, working directory (left-truncated on narrow screens); switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
 - **Disconnect overlay** — appears on WebSocket disconnect; click Reconnect to retry (all input blocked while disconnected)
@@ -276,7 +276,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.2`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.3`).
 
 ## Platform Notes
 
