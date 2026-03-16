@@ -4,6 +4,7 @@ export const translations = {
       install: 'Install',
       features: 'Features',
       how: 'How it works',
+      docs: 'Docs',
     },
     hero: {
       tagline: 'Your terminal, everywhere',
@@ -74,6 +75,7 @@ export const translations = {
       source: 'Source',
       issues: 'Issues',
       releases: 'Releases',
+      docs: 'Docs',
     },
   },
   ko: {
@@ -81,6 +83,7 @@ export const translations = {
       install: '설치',
       features: '기능',
       how: '작동 방식',
+      docs: '문서',
     },
     hero: {
       tagline: '어디서든 터미널을',
@@ -151,6 +154,7 @@ export const translations = {
       source: '소스',
       issues: '이슈',
       releases: '릴리즈',
+      docs: '문서',
     },
   },
 }

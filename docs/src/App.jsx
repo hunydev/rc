@@ -16,6 +16,7 @@ import {
   SplitSquareHorizontal,
 } from 'lucide-react'
 import { translations } from './i18n'
+import DocsPage from './DocsPage.jsx'
 import './App.css'
 
 const INSTALL_CMD = 'curl -fsSL https://rc.huny.dev/install.sh | bash'
@@ -78,6 +79,7 @@ function Nav() {
         <a href="#install" className="nav-link">{t(lang, 'nav.install')}</a>
         <a href="#features" className="nav-link">{t(lang, 'nav.features')}</a>
         <a href="#how" className="nav-link">{t(lang, 'nav.how')}</a>
+        <a href="#/docs" className="nav-link nav-link-docs">{t(lang, 'nav.docs')}</a>
         <LangToggle lang={lang} setLang={setLang} />
         <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="nav-github">
           <Github size={14} />
@@ -295,6 +297,7 @@ function Footer() {
         <span>{f.license}</span>
       </div>
       <div className="footer-links">
+        <a href="#/docs" className="footer-link-docs"><BookOpen size={13} /> {f.docs}</a>
         <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer"><Github size={13} /> {f.source}</a>
         <a href={`${GITHUB_URL}/issues`} target="_blank" rel="noopener noreferrer"><BookOpen size={13} /> {f.issues}</a>
         <a href={`${GITHUB_URL}/releases`} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} /> {f.releases}</a>
@@ -305,6 +308,31 @@ function Footer() {
 
 export default function App() {
   const [lang, setLang] = useState('en')
+  const [page, setPage] = useState(() => {
+    return window.location.hash.startsWith('#/docs') ? 'docs' : 'home'
+  })
+
+  useEffect(() => {
+    const handleHash = () => {
+      setPage(window.location.hash.startsWith('#/docs') ? 'docs' : 'home')
+    }
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  }, [])
+
+  const goHome = () => {
+    window.location.hash = ''
+    setPage('home')
+  }
+
+  if (page === 'docs') {
+    return (
+      <LangContext.Provider value={{ lang, setLang }}>
+        <DocsPage onBack={goHome} />
+      </LangContext.Provider>
+    )
+  }
+
   return (
     <LangContext.Provider value={{ lang, setLang }}>
       <div className="app">

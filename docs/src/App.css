@@ -65,6 +65,15 @@
   background: var(--surface0);
 }
 
+.nav-link-docs {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.nav-link-docs:hover {
+  color: var(--sapphire);
+}
+
 .nav-github {
   display: flex;
   align-items: center;
