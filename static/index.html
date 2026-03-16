@@ -177,7 +177,8 @@
       #split-pane.visible.slide-in { transform: translateX(0); }
       #split-toggle.visible { display: flex; }
     }
-    #app { display: flex; flex-direction: column; height: 100%; }
+    #app { display: flex; flex-direction: column; height: 100%; visibility: hidden; }
+    #app.ready { visibility: visible; }
 
     /* ───── Restart bar (bottom center, no modal) ───── */
     #restart-bar {
@@ -1153,13 +1154,15 @@
     }
 
     async function initApp() {
+      const app = document.getElementById('app');
       let res;
       // If we have a saved token, try authenticated request first
       if (authToken) {
-        try { res = await fetch(routePrefix + '/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
+        try { res = await fetch(routePrefix + '/info', { headers: authHeaders() }); } catch (e) { app.classList.add('ready'); connectWS(); return; }
         if (res.ok) {
           authRequired = true;
           await loadHeaderFromInfo(res);
+          app.classList.add('ready');
           connectWS();
           return;
         }
@@ -1168,9 +1171,10 @@
         sessionStorage.removeItem('rc-token');
       }
       // Try unauthenticated
-      try { res = await fetch(routePrefix + '/info'); } catch (e) { connectWS(); return; }
+      try { res = await fetch(routePrefix + '/info'); } catch (e) { app.classList.add('ready'); connectWS(); return; }
       if (res.ok) {
         await loadHeaderFromInfo(res);
+        app.classList.add('ready');
         connectWS();
         return;
       }
@@ -1199,6 +1203,7 @@
           sessionStorage.setItem('rc-token', authToken);
           await loadHeaderFromInfo(res);
           document.getElementById('login-overlay').classList.remove('visible');
+          document.getElementById('app').classList.add('ready');
           connectWS();
         } else {
           document.getElementById('login-error').style.display = 'block';
