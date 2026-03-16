@@ -1149,6 +1149,20 @@
 
     async function initApp() {
       let res;
+      // If we have a saved token, try authenticated request first
+      if (authToken) {
+        try { res = await fetch(routePrefix + '/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
+        if (res.ok) {
+          authRequired = true;
+          await loadHeaderFromInfo(res);
+          connectWS();
+          return;
+        }
+        // Token invalid, clear it
+        authToken = '';
+        sessionStorage.removeItem('rc-token');
+      }
+      // Try unauthenticated
       try { res = await fetch(routePrefix + '/info'); } catch (e) { connectWS(); return; }
       if (res.ok) {
         await loadHeaderFromInfo(res);
@@ -1157,28 +1171,25 @@
       }
       if (res.status === 401) {
         authRequired = true;
-        if (authToken) {
-          try { res = await fetch(routePrefix + '/info', { headers: authHeaders() }); } catch (e) { connectWS(); return; }
-          if (res.ok) {
-            await loadHeaderFromInfo(res);
-            connectWS();
-            return;
-          }
-          authToken = '';
-          sessionStorage.removeItem('rc-token');
-        }
         document.getElementById('login-overlay').classList.add('visible');
         document.getElementById('login-password').focus();
       }
+    }
+
+    async function hashSHA256(str) {
+      const buf = new TextEncoder().encode(str);
+      const hash = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
     async function doLogin() {
       const pwd = document.getElementById('login-password').value;
       if (!pwd) return;
       try {
-        const res = await fetch(routePrefix + '/info', { headers: { 'Authorization': 'Bearer ' + pwd } });
+        const hashed = await hashSHA256(pwd);
+        const res = await fetch(routePrefix + '/info', { headers: { 'Authorization': 'Bearer ' + hashed } });
         if (res.ok) {
-          authToken = pwd;
+          authToken = hashed;
           authRequired = true;
           sessionStorage.setItem('rc-token', authToken);
           await loadHeaderFromInfo(res);

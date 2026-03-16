@@ -166,7 +166,7 @@ func (a *Agent) drainOutput(idx int, s *agentSession) {
 func (a *Agent) connect() error {
 	header := http.Header{}
 	if a.password != "" {
-		header.Set("Authorization", "Bearer "+a.password)
+		header.Set("Authorization", "Bearer "+hashPassword(a.password))
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(a.target, header)
 	if err != nil {
