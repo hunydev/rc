@@ -278,6 +278,22 @@ func (h *Hub) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// CSRF protection: reject requests with a mismatched Origin header
+	if origin := r.Header.Get("Origin"); origin != "" {
+		host := r.Host
+		if host == "" {
+			host = r.Header.Get("Host")
+		}
+		allowed := "http://" + host
+		allowedTLS := "https://" + host
+		if origin != allowed && origin != allowedTLS {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"origin not allowed"}`))
+			return
+		}
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 	// Determine target tab
