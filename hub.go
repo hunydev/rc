@@ -115,6 +115,7 @@ type Hub struct {
 	user           string
 	noRestart      bool
 	readonly       bool
+	maxConnections int
 	mu             sync.RWMutex
 	pendingUploads map[int]chan uploadResult // keyed by hub tab index
 	uploadMu       sync.Mutex
@@ -161,7 +162,7 @@ type TabInfo struct {
 }
 
 // NewHub creates a new Hub with local PTY sessions.
-func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly, upload bool) *Hub {
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly, upload bool, maxConnections int) *Hub {
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	h := &Hub{
@@ -173,6 +174,7 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 		user:           currentUser,
 		noRestart:      noRestart,
 		readonly:       readonly,
+		maxConnections: maxConnections,
 		pendingUploads: make(map[int]chan uploadResult),
 	}
 	for i := range ptyMgrs {
@@ -212,6 +214,13 @@ func (h *Hub) getTabInfos() []TabInfo {
 		}
 	}
 	return infos
+}
+
+// ClientCount returns the number of connected browser clients.
+func (h *Hub) ClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
 }
 
 // Broadcast sends PTY output to all browser clients (for local tabs).
@@ -421,6 +430,17 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(proto, "auth-") {
 			responseHeader.Set("Sec-WebSocket-Protocol", proto)
 			break
+		}
+	}
+
+	// Enforce max connections limit
+	if h.maxConnections > 0 {
+		h.mu.RLock()
+		current := len(h.clients)
+		h.mu.RUnlock()
+		if current >= h.maxConnections {
+			http.Error(w, "maximum connections reached", http.StatusServiceUnavailable)
+			return
 		}
 	}
 

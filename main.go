@@ -34,25 +34,29 @@ const (
 )
 
 var (
-	cfgPort       int
-	cfgCommands   []string
-	cfgLabels     []string
-	cfgAttach     string
-	cfgPassword   string
-	cfgCols       int
-	cfgRows       int
-	cfgDaemon     bool
-	cfgBufferSize int
-	cfgBind       string
-	cfgNoRestart  bool
-	cfgReadonly   bool
-	cfgRoute      string
-	cfgUpload     bool
-	cfgTLSCert    string
-	cfgTLSKey     string
-	cfgTitle      string
-	cfgWorkDir    string
-	cfgEnvVars    []string
+	cfgPort           int
+	cfgCommands       []string
+	cfgLabels         []string
+	cfgAttach         string
+	cfgPassword       string
+	cfgCols           int
+	cfgRows           int
+	cfgDaemon         bool
+	cfgBufferSize     int
+	cfgBind           string
+	cfgNoRestart      bool
+	cfgReadonly        bool
+	cfgRoute          string
+	cfgUpload         bool
+	cfgTLSCert        string
+	cfgTLSKey         string
+	cfgTitle          string
+	cfgWorkDir        string
+	cfgEnvVars        []string
+	cfgShell          string
+	cfgMaxConnections int
+	cfgLogFile        string
+	cfgTimeout        string
 )
 
 var rootCmd = &cobra.Command{
@@ -95,6 +99,10 @@ func init() {
 	f.StringVar(&cfgTitle, "title", "", "Custom title displayed in the browser header")
 	f.StringVarP(&cfgWorkDir, "working-dir", "w", "", "Working directory for PTY processes")
 	f.StringArrayVarP(&cfgEnvVars, "env", "e", nil, "Environment variable for PTY processes (repeatable, e.g. -e KEY=VALUE)")
+	f.StringVar(&cfgShell, "shell", "", "Default shell when no -c is given (default: bash on Unix, cmd.exe on Windows)")
+	f.IntVar(&cfgMaxConnections, "max-connections", 0, "Maximum concurrent WebSocket clients (0 = unlimited)")
+	f.StringVar(&cfgLogFile, "log", "", "Log file path (default: stderr)")
+	f.StringVar(&cfgTimeout, "timeout", "", "Auto-shutdown after idle duration with no clients (e.g. 30m, 2h)")
 }
 
 func main() {
@@ -105,6 +113,16 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	// Log file redirection (set up early so all subsequent logs go to file)
+	if cfgLogFile != "" {
+		f, err := os.OpenFile(cfgLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return fmt.Errorf("cannot open log file: %v", err)
+		}
+		defer f.Close()
+		log.SetOutput(f)
+	}
+
 	// Password from environment variable (fallback, avoids leaking in ps)
 	if cfgPassword == "" {
 		cfgPassword = os.Getenv("RC_PASSWORD")
@@ -115,15 +133,32 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("both --tls-cert and --tls-key must be specified together")
 	}
 
+	// Parse idle timeout duration
+	var idleTimeout time.Duration
+	if cfgTimeout != "" {
+		var err error
+		idleTimeout, err = time.ParseDuration(cfgTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid --timeout value %q: %v", cfgTimeout, err)
+		}
+		if idleTimeout <= 0 {
+			return fmt.Errorf("--timeout must be a positive duration")
+		}
+	}
+
 	// Daemon mode: re-exec self without -d/--daemon, fully detached
 	if cfgDaemon {
 		daemonize()
 		return nil
 	}
 
-	// Default command
+	// Default command: use --shell if set, otherwise platform default
 	if len(cfgCommands) == 0 {
-		cfgCommands = []string{defaultShell}
+		if cfgShell != "" {
+			cfgCommands = []string{cfgShell}
+		} else {
+			cfgCommands = []string{defaultShell}
+		}
 	}
 
 	bufferBytes := cfgBufferSize * 1024 * 1024
@@ -209,7 +244,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
-	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly, cfgUpload)
+	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly, cfgUpload, cfgMaxConnections)
 	for i, s := range sessions {
 		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}
@@ -278,8 +313,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
+	shutdownFunc := func() {
 		log.Println("Shutting down...")
 		for _, s := range sessions {
 			s.PtyMgr.Close()
@@ -287,9 +321,30 @@ func run(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		server.Shutdown(ctx)
-		// Force exit after graceful shutdown completes
 		os.Exit(0)
+	}
+	go func() {
+		<-sigChan
+		shutdownFunc()
 	}()
+
+	// Idle timeout: auto-shutdown when no clients are connected
+	if idleTimeout > 0 {
+		go func() {
+			idleSince := time.Now()
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if hub.ClientCount() > 0 {
+					idleSince = time.Now()
+				} else if time.Since(idleSince) >= idleTimeout {
+					log.Printf("Idle timeout (%s) reached with no clients, shutting down", idleTimeout)
+					shutdownFunc()
+					return
+				}
+			}
+		}()
+	}
 
 	tlsEnabled := cfgTLSCert != "" && cfgTLSKey != ""
 	scheme := "http"
@@ -302,6 +357,12 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if cfgPassword != "" {
 		log.Printf("  Password protection: enabled")
+	}
+	if cfgMaxConnections > 0 {
+		log.Printf("  Max connections: %d", cfgMaxConnections)
+	}
+	if idleTimeout > 0 {
+		log.Printf("  Idle timeout: %s", idleTimeout)
 	}
 	if tlsEnabled {
 		log.Printf("  TLS: cert=%s key=%s", cfgTLSCert, cfgTLSKey)
