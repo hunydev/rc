@@ -102,12 +102,19 @@ Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) 
 
 When `--password` is set, all API and WebSocket endpoints require a Bearer token. The frontend shows a login page automatically.
 
+- **Login rate limiting** — progressive IP-based lockout on failed login attempts (5 failures → 5 min, 10 → 1 hour, 20 → 24 hours)
+- **Constant-time token comparison** — prevents timing-based attacks
+- **Reverse proxy support** — use `--trusted-proxy` to trust `X-Forwarded-For` / `X-Real-Ip` headers for rate limiting
+
 ```bash
 # Server with password
 ./rc --password mysecret -c "bash"
 
 # Password via environment variable (recommended, avoids ps visibility)
 RC_PASSWORD=mysecret ./rc -c "bash"
+
+# Behind reverse proxy (nginx, caddy, etc.)
+./rc --password mysecret --trusted-proxy -c "bash"
 ```
 
 ### Remote Attach (Agent Mode)
@@ -181,6 +188,7 @@ All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route
 | `--max-connections` | | `0` | Maximum concurrent WebSocket clients (0 = unlimited; agents not affected) |
 | `--log` | | — | Log file path (default: stderr). With `--daemon`, overrides `/tmp/` default. |
 | `--timeout` | | — | Auto-shutdown after idle duration with no clients (e.g. `30m`, `2h`) |
+| `--trusted-proxy` | | `false` | Trust `X-Forwarded-For` / `X-Real-Ip` headers (enable when behind reverse proxy) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `--log` path or `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
 | `--buffer-size` | | `10` | Output buffer size in MB |
@@ -253,13 +261,13 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **Reorder** — move split tabs up/down; boundary arrows are dimmed and disabled
   - Split state persists across page reloads (saved to localStorage)
   - On narrow screens (≤ 768px), the split pane becomes a slide-out drawer toggled by a floating button
-- **Copy on select** — selecting text in the terminal automatically copies to clipboard
+- **Copy on select** — selecting text in the terminal automatically copies to clipboard with toast notification
 - **xterm.js** terminal with Catppuccin Mocha theme, 50K scrollback
 - **Session replay** — reconnecting replays all buffered output per tab
 - **Login page** — automatic login overlay when password is set; token stored in session. No flash of terminal content before login screen.
 - **Dynamic header** — Shows logo, hostname, working directory (left-truncated on narrow screens); switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
-- **Disconnect overlay** — appears on WebSocket disconnect; click Reconnect to retry (all input blocked while disconnected)
+- **Disconnect overlay** — appears on WebSocket disconnect with auto-reconnect (exponential backoff, 1s → 30s max); manual Reconnect button also available
 - **Upload modal** — when `--upload` is enabled, an upload icon appears next to the workspace path for tabs that support it (per-tab); supports drag-and-drop, progress bar, and duplicate file rejection. Agent tabs also show upload when the agent runs with `--upload`.
 - **Floating helper button** (mobile/touch) — bottom-right SVG keyboard icon opens panel without triggering virtual keyboard:
   - Arrow keys
@@ -276,7 +284,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.5.3`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.0`).
 
 ## Platform Notes
 
