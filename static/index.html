@@ -730,18 +730,23 @@
       tabScroll.appendChild(tabEl);
 
       // Wire up terminal I/O
+      // Filter out OSC responses (e.g. color queries) that xterm.js generates
+      // These would otherwise be sent to PTY stdin and echoed as visible text
+      const oscResponseRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
       t.onData((data) => {
         if (!isConnected()) return;
         if (meta.readonly) return;
-        if (ctrlActive && data.length === 1) {
-          const code = data.toLowerCase().charCodeAt(0);
+        const filtered = data.replace(oscResponseRe, '');
+        if (!filtered) return;
+        if (ctrlActive && filtered.length === 1) {
+          const code = filtered.toLowerCase().charCodeAt(0);
           if (code >= 97 && code <= 122) {
             sendWS({ type: 'input', data: String.fromCharCode(code - 96), tab: idx });
             deactivateCtrl();
             return;
           }
         }
-        sendWS({ type: 'input', data, tab: idx });
+        sendWS({ type: 'input', data: filtered, tab: idx });
       });
 
       t.onResize(({ cols, rows }) => {
@@ -1448,11 +1453,8 @@
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
-        // Send resize for active tab
-        const act = getActiveTab();
-        if (act) {
-          sendWS({ type: 'resize', cols: act.term.cols, rows: act.term.rows, tab: activeTab });
-        }
+        // Delay initial resize to ensure layout is settled after tab creation
+        setTimeout(() => refitAllTerminals(), 200);
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
