@@ -309,6 +309,9 @@ func run(cmd *cobra.Command, args []string) error {
 		mux.HandleFunc(rp+"/upload", requireAuth(cfgPassword, hub.HandleUpload))
 	}
 
+	mux.HandleFunc(rp+"/update/check", requireAuth(cfgPassword, handleUpdateCheck))
+	mux.HandleFunc(rp+"/update/apply", requireAuth(cfgPassword, handleUpdateApply))
+
 	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
 	server := &http.Server{
 		Addr:        addr,
@@ -336,6 +339,16 @@ func run(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigChan
 		shutdownFunc()
+	}()
+
+	// Update restart: wait for update signal, then gracefully restart with same args
+	go func() {
+		<-restartChan
+		performRestart(server, func() {
+			for _, s := range sessions {
+				s.PtyMgr.Close()
+			}
+		})
 	}()
 
 	// Idle timeout: auto-shutdown when no clients are connected

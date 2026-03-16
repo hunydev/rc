@@ -347,6 +347,57 @@
     .menu-item.danger:hover { background: rgba(243,139,168,0.1); }
     .menu-sep { border-top: 1px solid #313244; margin: 4px 0; }
 
+    /* ───── Update modal ───── */
+    #update-modal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 400;
+      justify-content: center; align-items: center;
+    }
+    #update-modal.visible { display: flex; }
+    .update-box {
+      background: #181825; padding: 24px 28px; border-radius: 12px;
+      border: 1px solid #313244; width: 400px; max-width: 90vw;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .update-box h3 { color: #89b4fa; margin: 0 0 14px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+    .update-versions { margin: 12px 0; }
+    .update-ver-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; font-size: 13px; color: #a6adc8;
+    }
+    .update-ver-row .ver-label { color: #6c7086; }
+    .update-ver-row .ver-value { font-family: 'JetBrains Mono', monospace; color: #cdd6f4; }
+    .update-ver-row .ver-new { color: #a6e3a1; font-weight: 600; }
+    .update-notes {
+      margin: 12px 0; padding: 10px 12px; background: #11111b; border-radius: 8px;
+      font-size: 12px; color: #a6adc8; max-height: 200px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+    }
+    .update-notes:empty { display: none; }
+    .update-size { font-size: 12px; color: #585b70; margin-bottom: 12px; }
+    .update-btn {
+      width: 100%; padding: 10px; border-radius: 8px; border: none;
+      background: #89b4fa; color: #1e1e2e; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .update-btn:hover { background: #74c7ec; }
+    .update-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .update-close {
+      margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
+      font-size: 13px; cursor: pointer; transition: background 0.15s;
+    }
+    .update-close:hover { background: #313244; }
+    .update-spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid #313244; border-top-color: #89b4fa; border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .update-status { font-size: 13px; color: #a6adc8; text-align: center; padding: 16px 0; }
+    .update-status.error { color: #f38ba8; }
+    .update-status.success { color: #a6e3a1; }
+
     /* ───── Info modal ───── */
     #info-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -442,6 +493,10 @@
           Reset tab order
         </button>
         <div class="menu-sep"></div>
+        <button class="menu-item" id="menu-update" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+          Check for Updates
+        </button>
         <button class="menu-item" id="menu-about" role="menuitem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           About &amp; Licenses
@@ -501,6 +556,52 @@
       <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
       <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
       <button class="info-close" id="info-close">Close</button>
+    </div>
+  </div>
+
+  <!-- Update Modal -->
+  <div id="update-modal" role="dialog" aria-label="Software Update" aria-modal="true">
+    <div class="update-box">
+      <div id="update-checking">
+        <h3><span class="update-spinner"></span> Checking for Updates</h3>
+        <div class="update-status">Contacting GitHub...</div>
+      </div>
+      <div id="update-available" style="display:none">
+        <h3>📦 Update Available</h3>
+        <div class="update-versions">
+          <div class="update-ver-row">
+            <span class="ver-label">Current</span>
+            <span class="ver-value" id="update-current-ver"></span>
+          </div>
+          <div class="update-ver-row">
+            <span class="ver-label">Latest</span>
+            <span class="ver-value ver-new" id="update-latest-ver"></span>
+          </div>
+        </div>
+        <div class="update-notes" id="update-notes"></div>
+        <div class="update-size" id="update-size"></div>
+        <button class="update-btn" id="update-apply-btn">Update &amp; Restart</button>
+      </div>
+      <div id="update-uptodate" style="display:none">
+        <h3>✅ Up to Date</h3>
+        <div class="update-status success">You're running the latest version.</div>
+        <div class="update-ver-row" style="justify-content:center; padding:8px 0;">
+          <span class="ver-value" id="update-current-ok"></span>
+        </div>
+      </div>
+      <div id="update-progress" style="display:none">
+        <h3><span class="update-spinner"></span> Updating...</h3>
+        <div class="update-status">Downloading and installing. The server will restart shortly.</div>
+      </div>
+      <div id="update-done" style="display:none">
+        <h3>✅ Update Installed</h3>
+        <div class="update-status success">Restarting server... The page will reload automatically.</div>
+      </div>
+      <div id="update-error" style="display:none">
+        <h3>❌ Update Failed</h3>
+        <div class="update-status error" id="update-error-msg"></div>
+      </div>
+      <button class="update-close" id="update-close-btn">Close</button>
     </div>
   </div>
 
@@ -594,6 +695,8 @@
     const menuResetOrder = document.getElementById('menu-reset-order');
     const menuAbout = document.getElementById('menu-about');
     const menuLogout = document.getElementById('menu-logout');
+    const menuUpdate = document.getElementById('menu-update');
+    const updateModal = document.getElementById('update-modal');
 
     // ───── Constants ─────
     const IDLE_THRESHOLD_MS = 3000;
@@ -1702,6 +1805,82 @@
       if (ordered.length > 0 && !ordered.includes(activeTab)) {
         switchTab(ordered[0]);
       }
+    });
+
+    // ───── Check for Updates ─────
+    function showUpdateSection(id) {
+      ['update-checking','update-available','update-uptodate','update-progress','update-done','update-error']
+        .forEach(s => document.getElementById(s).style.display = s === id ? '' : 'none');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    menuUpdate.addEventListener('click', async () => {
+      menuPopup.classList.remove('visible');
+      showUpdateSection('update-checking');
+      updateModal.classList.add('visible');
+
+      try {
+        const resp = await fetch(routePrefix + '/update/check', { headers: authHeaders() });
+        if (!resp.ok) throw new Error('Server returned ' + resp.status);
+        const data = await resp.json();
+
+        if (data.error) throw new Error(data.error);
+
+        if (data.update_available) {
+          document.getElementById('update-current-ver').textContent = data.current_version;
+          document.getElementById('update-latest-ver').textContent = data.latest_version;
+          document.getElementById('update-notes').textContent = data.release_notes || '';
+          const sizeEl = document.getElementById('update-size');
+          sizeEl.textContent = data.asset_name
+            ? `${data.asset_name} (${formatBytes(data.asset_size)})`
+            : '';
+          showUpdateSection('update-available');
+        } else {
+          document.getElementById('update-current-ok').textContent = data.current_version;
+          showUpdateSection('update-uptodate');
+        }
+      } catch (e) {
+        document.getElementById('update-error-msg').textContent = e.message;
+        showUpdateSection('update-error');
+      }
+    });
+
+    document.getElementById('update-apply-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('update-apply-btn');
+      btn.disabled = true;
+      showUpdateSection('update-progress');
+
+      try {
+        const resp = await fetch(routePrefix + '/update/apply', {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || data.error) {
+          throw new Error(data.error || 'Update failed');
+        }
+
+        showUpdateSection('update-done');
+        // Server is restarting; auto-reload after a delay
+        setTimeout(() => { location.reload(); }, 4000);
+      } catch (e) {
+        document.getElementById('update-error-msg').textContent = e.message;
+        showUpdateSection('update-error');
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('update-close-btn').addEventListener('click', () => {
+      updateModal.classList.remove('visible');
+    });
+    updateModal.addEventListener('click', (e) => {
+      if (e.target === updateModal) updateModal.classList.remove('visible');
     });
 
     // About & Licenses
