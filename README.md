@@ -94,6 +94,9 @@ go build -o rc .
 
 # Auto-shutdown after 30 minutes with no connected clients
 ./rc --timeout 30m -c "bash"
+
+# Check for updates and install if available
+./rc --update
 ```
 
 Open `http://localhost:8000` (or `http://localhost:8000/myapp/` with `--route`) in your browser.
@@ -188,6 +191,7 @@ All endpoints (`/ws`, `/attach`, `/info`, `/health`) are prefixed with the route
 | `--max-connections` | | `0` | Maximum concurrent WebSocket clients (0 = unlimited; agents not affected) |
 | `--log` | | — | Log file path (default: stderr). With `--daemon`, overrides `/tmp/` default. |
 | `--timeout` | | — | Auto-shutdown after idle duration with no clients (e.g. `30m`, `2h`) |
+| `--update` | | `false` | Check for updates and install the latest version |
 | `--trusted-proxy` | | `false` | Trust `X-Forwarded-For` / `X-Real-Ip` headers (enable when behind reverse proxy) |
 | `--daemon` | `-d` | `false` | Run as background daemon (logs to `--log` path or `/tmp/rc-<pid>.log`) |
 | `--bind` | | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only access) |
@@ -251,6 +255,8 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **☰ Menu** — sticky button at right end of tab bar; tabable action menu:
     - **Close disconnected tabs** — removes all disconnected agent tabs at once
     - **Reset tab order** — clears saved tab order (localStorage) and restores original order
+    - **Check for Updates** — opens update modal to check and apply updates from the UI
+    - **Help & Docs** — opens guide with tab statuses, split pane, upload, shortcuts, and link to full docs
     - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
     - **Logout** — clears authentication token and reloads (shown only when logged in)
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
@@ -284,7 +290,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.0`).
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.2`). Update in-place with `rc --update` or via the web UI menu.
 
 ## Platform Notes
 
