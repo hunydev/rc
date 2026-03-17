@@ -3,24 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>rc — Remote Control</title>
+    <title>rc — Remote Control | Terminal in Your Browser</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="canonical" href="https://rc.huny.dev/" />
+    <!-- SEO meta -->
+    <meta name="description" content="rc is a lightweight single-binary server that runs CLI commands in a pseudo-terminal and streams them to a web browser in real-time via WebSocket. Multi-tab, split pane, agent mode, file upload, mobile support.">
+    <meta name="keywords" content="rc, remote control, terminal, browser terminal, web terminal, PTY, WebSocket, CLI, SSH alternative, remote terminal, multi-tab terminal, split pane, agent mode">
+    <meta name="author" content="hunydev">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#1e1e2e">
     <!-- Open Graph -->
     <meta property="og:type" content="website">
-    <meta property="og:title" content="rc — Remote Control">
-    <meta property="og:description" content="Run CLI commands in PTY, stream to browser via WebSocket. Multi-tab, split pane, agent mode.">
+    <meta property="og:site_name" content="rc — Remote Control">
+    <meta property="og:title" content="rc — Terminal in Your Browser">
+    <meta property="og:description" content="A single binary that wraps any CLI command in a PTY and streams it live to your browser via WebSocket. Multi-tab, split pane, agent mode.">
     <meta property="og:image" content="https://rc.huny.dev/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
     <meta property="og:url" content="https://rc.huny.dev">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:locale:alternate" content="ko_KR">
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="rc — Remote Control">
-    <meta name="twitter:description" content="Run CLI commands in PTY, stream to browser via WebSocket.">
+    <meta name="twitter:title" content="rc — Terminal in Your Browser">
+    <meta name="twitter:description" content="A single binary that wraps any CLI command in a PTY and streams it live to your browser via WebSocket.">
     <meta name="twitter:image" content="https://rc.huny.dev/og-image.png">
-    <meta name="description" content="rc is a lightweight server that runs CLI commands in a pseudo-terminal and streams them to a web browser in real-time via WebSocket.">
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "rc",
+      "alternateName": "Remote Control",
+      "description": "A lightweight single-binary server that runs CLI commands in a pseudo-terminal and streams them to a web browser in real-time via WebSocket.",
+      "url": "https://rc.huny.dev",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS, Windows",
+      "downloadUrl": "https://github.com/hunydev/rc/releases/latest",
+      "softwareVersion": "0.7.2",
+      "author": {
+        "@type": "Person",
+        "name": "hunydev",
+        "url": "https://github.com/hunydev"
+      },
+      "codeRepository": "https://github.com/hunydev/rc",
+      "license": "https://github.com/hunydev/rc/blob/main/LICENSE",
+      "programmingLanguage": "Go",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
+    <noscript>
+      <h1>rc — Remote Control</h1>
+      <p>rc is a lightweight single-binary server that runs CLI commands in a pseudo-terminal and streams them to a web browser in real-time via WebSocket.</p>
+      <p>Features: Multi-tab terminal, split pane, agent mode for distributed terminals, file upload, mobile support, password authentication.</p>
+      <p><a href="https://github.com/hunydev/rc">View on GitHub</a> | <a href="https://github.com/hunydev/rc/releases/latest">Download</a></p>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

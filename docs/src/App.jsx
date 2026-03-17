@@ -320,6 +320,28 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash)
   }, [])
 
+  // Update html lang attribute
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
+  // Update document title and meta for SPA pages
+  useEffect(() => {
+    if (page === 'docs') {
+      document.title = 'rc Docs — Usage Guide & Reference'
+      const desc = document.querySelector('meta[name="description"]')
+      if (desc) desc.setAttribute('content', 'Complete documentation for rc: installation, CLI flags, hub features, tab management, agent mode, keyboard shortcuts, and more.')
+      const canon = document.querySelector('link[rel="canonical"]')
+      if (canon) canon.setAttribute('href', 'https://rc.huny.dev/#/docs')
+    } else {
+      document.title = 'rc — Remote Control | Terminal in Your Browser'
+      const desc = document.querySelector('meta[name="description"]')
+      if (desc) desc.setAttribute('content', 'rc is a lightweight single-binary server that runs CLI commands in a pseudo-terminal and streams them to a web browser in real-time via WebSocket. Multi-tab, split pane, agent mode, file upload, mobile support.')
+      const canon = document.querySelector('link[rel="canonical"]')
+      if (canon) canon.setAttribute('href', 'https://rc.huny.dev/')
+    }
+  }, [page])
+
   const goHome = () => {
     window.location.hash = ''
     setPage('home')
@@ -337,14 +359,16 @@ export default function App() {
     <LangContext.Provider value={{ lang, setLang }}>
       <div className="app">
         <Nav />
-        <Hero />
-        <div className="divider" />
-        <InstallStrip />
-        <div className="divider" />
-        <Values />
-        <div className="divider" />
-        <HowItWorks />
-        <CTA />
+        <main>
+          <Hero />
+          <div className="divider" />
+          <InstallStrip />
+          <div className="divider" />
+          <Values />
+          <div className="divider" />
+          <HowItWorks />
+          <CTA />
+        </main>
         <Footer />
       </div>
     </LangContext.Provider>
