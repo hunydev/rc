@@ -275,17 +275,21 @@ function TabManagement() {
       <p>When tabs overflow, use the mouse wheel on the tab bar to scroll horizontally (no Shift needed).</p>
 
       <h3>Double-Click Rename</h3>
-      <p>Double-click any tab label to rename it. Custom names are saved to localStorage and restored on reload. <strong>Reset all tabs</strong> from the menu restores original names.</p>
+      <p>Double-click any tab label to rename it. Custom names are saved to localStorage and restored on reload. Clearing the name shows the original as a placeholder. <strong>Reset all tabs</strong> from the menu restores original names.</p>
+
+      <h3>Tab Persistence</h3>
+      <p>The active tab is saved to localStorage and restored on page reload. You can also deep-link to a specific tab using the <code>?tab=N</code> query parameter (1-based). The query parameter takes priority over the saved state.</p>
 
       <h3>Tab Menu (☰)</h3>
       <p>The sticky menu button at the right end of the tab bar provides:</p>
       <ul>
-        <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> (shown when password is set; 5-minute expiry)</li>
+        <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> with OS-specific install instructions (shown when password is set; 5-minute expiry)</li>
         <li><strong>Close disconnected tabs</strong> — Remove all disconnected agent tabs at once</li>
         <li><strong>Reset all tabs</strong> — Clear saved order, custom names, and restore the original layout</li>
         <li><strong>Check for Updates</strong> — Check for and apply updates from the UI. The new binary is verified before restarting; if the new process fails to start, the server recovers automatically.</li>
         <li><strong>Help &amp; Docs</strong> — Quick guide with tab statuses, split pane, upload, shortcuts</li>
         <li><strong>About &amp; Licenses</strong> — Version info, author, GitHub link, open-source licenses</li>
+        <li><strong>rc.huny.dev</strong> — Opens the project website in a new tab</li>
         <li><strong>Logout</strong> — Clear authentication token and reload (shown only when logged in)</li>
       </ul>
 

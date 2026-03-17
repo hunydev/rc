@@ -254,14 +254,16 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`; loopback falls back to hostname)
   - **Drag-and-drop** — reorder tabs by dragging (including to the rightmost position); order saved to localStorage per browser
   - **Horizontal scroll** — mouse wheel on the tab bar scrolls horizontally when tabs overflow
-  - **Double-click rename** — double-click any tab label to rename it; saved to localStorage, restored on reload
+  - **Double-click rename** — double-click any tab label to rename it; saved to localStorage, restored on reload; clearing the name shows the original as placeholder
+  - **Tab persistence** — active tab is saved to localStorage; survives page reload. Use `?tab=N` (1-based) to deep-link to a specific tab
   - **☰ Menu** — sticky button at right end of tab bar; tabable action menu:
-    - **Attach token** — generate a temporary one-time-use token for agent `--attach` (shown only when password is set; 5-minute expiry)
+    - **Attach token** — generate a temporary one-time-use token for agent `--attach` with OS-specific install instructions (shown only when password is set; 5-minute expiry)
     - **Close disconnected tabs** — removes all disconnected agent tabs at once
     - **Reset all tabs** — clears saved tab order, custom names, and restores original layout
     - **Check for Updates** — opens update modal to check and apply updates from the UI (verifies binary before restarting; recovers if startup fails)
     - **Help & Docs** — opens guide with tab statuses, split pane, upload, shortcuts, and link to full docs
     - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
+    - **rc.huny.dev** — opens the project website in a new tab
     - **Logout** — clears authentication token and reloads (shown only when logged in)
 - **Split pane** — Click the split icon (⧉) on a non-active tab to send it to a right-side panel.
   - Multiple tabs can be stacked vertically in the split area
@@ -295,7 +297,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.1`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.2`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
 
 ## Platform Notes
 
