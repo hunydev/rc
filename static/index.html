@@ -746,9 +746,6 @@
     <div class="key-row">
       <button class="key-btn wide" id="paste-btn" style="flex:1">&#128203; Paste</button>
     </div>
-    <div class="key-row">
-      <button class="key-btn wide" id="select-toggle" style="flex:1">&#9998; Select text</button>
-    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -770,7 +767,6 @@
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
     const pasteBtn = document.getElementById('paste-btn');
-    const selectToggle = document.getElementById('select-toggle');
     const uploadBtn = document.createElement('button');
     uploadBtn.id = 'upload-btn';
     uploadBtn.title = 'Upload file';
@@ -1701,25 +1697,6 @@
       }).catch(() => {});
     }
     onTap(pasteBtn, doPaste);
-
-    // Text selection mode toggle (mobile)
-    let selectMode = false;
-    function setSelectMode(on) {
-      selectMode = on;
-      document.querySelectorAll('.xterm').forEach(el => {
-        el.style.touchAction = on ? 'auto' : '';
-        el.style.userSelect = on ? 'text' : '';
-        el.style.webkitUserSelect = on ? 'text' : '';
-      });
-      if (on) {
-        selectToggle.classList.add('active');
-        selectToggle.textContent = '\u2713 Select text';
-      } else {
-        selectToggle.classList.remove('active');
-        selectToggle.textContent = '\u270E Select text';
-      }
-    }
-    onTap(selectToggle, () => setSelectMode(!selectMode));
 
     // ───── Upload ─────
     let uploadTargetTab = null;

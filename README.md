@@ -251,11 +251,12 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **×** close button — appears on disconnected remote tabs to remove them
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
-  - **Drag-and-drop** — reorder tabs by dragging; order saved to localStorage per browser
+  - **Drag-and-drop** — reorder tabs by dragging (including to the rightmost position); order saved to localStorage per browser
+  - **Horizontal scroll** — mouse wheel on the tab bar scrolls horizontally when tabs overflow
   - **Double-click rename** — double-click any tab label to rename it; saved to localStorage, restored on reload
   - **☰ Menu** — sticky button at right end of tab bar; tabable action menu:
     - **Close disconnected tabs** — removes all disconnected agent tabs at once
-    - **Reset tab order** — clears saved tab order, custom names, and restores original order
+    - **Reset all tabs** — clears saved tab order, custom names, and restores original layout
     - **Check for Updates** — opens update modal to check and apply updates from the UI
     - **Help & Docs** — opens guide with tab statuses, split pane, upload, shortcuts, and link to full docs
     - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
@@ -292,7 +293,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.3`). Update in-place with `rc --update` or via the web UI menu.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.4`). Update in-place with `rc --update` or via the web UI menu.
 
 ## Platform Notes
 
