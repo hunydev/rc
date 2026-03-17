@@ -28,7 +28,7 @@ Or download pre-built binaries from the [Releases](https://github.com/hunydev/rc
 - **Distributed terminals** — Attach remote servers to a central hub with `--attach`. Monitor everything from one browser.
 - **Session persistence** — Process survives browser disconnection. Reconnect and see full history.
 - **Mobile friendly** — Floating helper keyboard for touch devices (arrow keys, Ctrl combos, Tab, Esc).
-- **File upload** — Upload files to the server's working directory from the browser (opt-in with `--upload`).
+- **File upload** — Upload files to the server's working directory from the browser (opt-in with `--upload`). Configurable size limit via `--max-upload-size` or `RC_MAX_UPLOAD_SIZE`.
 - **Restart on exit** — When the command finishes, a restart button appears. One click to rerun.
 
 ## Architecture
@@ -74,8 +74,9 @@ go build -o rc .
 # URL route prefix (for reverse proxy / security)
 ./rc --route /myapp -c "bash"
 
-# Enable file upload to working directory
+# Enable file upload to working directory (default max 100 MB, configurable)
 ./rc --upload -c "bash"
+./rc --upload --max-upload-size 500 -c "bash"  # 500 MB limit
 
 # Custom title, working directory, and environment variables
 ./rc --title "Production" -w /opt/app -e "NODE_ENV=production" -c "npm start"
@@ -297,7 +298,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.2`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.3`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
 
 ## Platform Notes
 

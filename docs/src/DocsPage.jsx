@@ -283,9 +283,9 @@ function TabManagement() {
       <h3>Tab Menu (☰)</h3>
       <p>The sticky menu button at the right end of the tab bar provides:</p>
       <ul>
-        <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> with OS-specific install instructions (shown when password is set; 5-minute expiry)</li>
         <li><strong>Close disconnected tabs</strong> — Remove all disconnected agent tabs at once</li>
         <li><strong>Reset all tabs</strong> — Clear saved order, custom names, and restore the original layout</li>
+        <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> with OS-specific install instructions (shown when password is set; 5-minute expiry)</li>
         <li><strong>Check for Updates</strong> — Check for and apply updates from the UI. The new binary is verified before restarting; if the new process fails to start, the server recovers automatically.</li>
         <li><strong>Help &amp; Docs</strong> — Quick guide with tab statuses, split pane, upload, shortcuts</li>
         <li><strong>About &amp; Licenses</strong> — Version info, author, GitHub link, open-source licenses</li>
@@ -294,7 +294,7 @@ function TabManagement() {
       </ul>
 
       <h3>Hover Tooltip</h3>
-      <p>Hover over any tab to see details: user, PID, and address. Remote agent tabs show <code>user@ip, pid: 1234</code>.</p>
+      <p>Hover over any tab to see details — user, hostname, command, and PID — each on its own line. For remote agent tabs: <code>user@ip</code>, <code>host: hostname</code>, <code>cmd: bash</code>. Even when a custom label is set, the original command is always visible.</p>
 
       <h3>Close Button</h3>
       <p>Disconnected remote agent tabs show an <strong>×</strong> button. Click to remove them from the tab bar. When the agent reconnects, fresh tabs are created.</p>
@@ -374,7 +374,7 @@ function AgentMode() {
       <h3>Attach Token</h3>
       <p>Instead of sharing the hub's actual password, you can generate a temporary <strong>attach token</strong> from the hub's web UI:</p>
       <ol>
-        <li>Open the tab menu (☰) in the hub frontend and click <strong>🔑 Attach token</strong></li>
+        <li>Open the tab menu (☰) in the hub frontend and click <strong>Attach token</strong></li>
         <li>A one-time-use token is generated with a <strong>5-minute expiry</strong></li>
         <li>Copy the token and use it as the agent's <code>--password</code> value</li>
       </ol>
@@ -520,6 +520,15 @@ function FileUpload() {
       <h3>Enable Upload</h3>
       <CodeBlock>{`./rc --upload -c "bash"`}</CodeBlock>
       <p>When enabled, an upload icon (📤) appears next to the workspace path in the header.</p>
+
+      <h3>Size Limit</h3>
+      <p>The default maximum upload size is <strong>100 MB</strong>. Adjust with the <code>--max-upload-size</code> flag (in MB) or the <code>RC_MAX_UPLOAD_SIZE</code> environment variable. The hard ceiling is 1 GB.</p>
+      <CodeBlock>{`# Set max upload to 500 MB via flag
+./rc --upload --max-upload-size 500 -c "bash"
+
+# Or via environment variable
+RC_MAX_UPLOAD_SIZE=500 ./rc --upload -c "bash"`}</CodeBlock>
+      <p>The upload modal displays the current size limit and rejects files that exceed it before uploading.</p>
 
       <h3>Usage</h3>
       <ul>
