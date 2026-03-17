@@ -506,6 +506,13 @@
       color: #f9e2af; font-size: 12px; margin-top: 8px; text-align: center;
     }
     .token-error-msg { color: #f38ba8; font-size: 13px; margin-top: 8px; }
+    .token-os-tab {
+      background: #1e1e2e; border: 1px solid #313244; border-radius: 6px;
+      color: #6c7086; font-size: 11px; padding: 4px 0; cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .token-os-tab:hover { color: #a6adc8; }
+    .token-os-tab.active { background: #313244; color: #cdd6f4; border-color: #89b4fa; }
     .token-box .token-close {
       margin-top: 16px; width: 100%; padding: 8px; border-radius: 8px;
       border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
@@ -598,6 +605,11 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           About &amp; Licenses
         </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" id="menu-website" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          rc.huny.dev
+        </button>
         <button class="menu-item danger" id="menu-logout" style="display:none" role="menuitem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           Logout
@@ -659,6 +671,23 @@
           </button>
         </div>
         <div class="token-expiry" id="token-expiry"></div>
+        <div class="menu-sep" style="margin:12px 0 8px"></div>
+        <details id="token-install-section" style="margin-top:4px;">
+          <summary style="color:#a6adc8; font-size:12px; cursor:pointer; user-select:none;">Don't have <code style="font-size:11px;">rc</code> installed?</summary>
+          <div style="margin-top:8px;">
+            <div style="display:flex; gap:4px; margin-bottom:6px;">
+              <button class="token-os-tab active" data-os="linux" style="flex:1;">Linux</button>
+              <button class="token-os-tab" data-os="mac" style="flex:1;">macOS</button>
+              <button class="token-os-tab" data-os="windows" style="flex:1;">Windows</button>
+            </div>
+            <div class="token-example" id="token-install-cmd">
+              <code id="token-install-code" style="color:#cdd6f4; font-size:11px; white-space:pre-wrap;"></code>
+              <button class="token-copy" id="token-copy-install" title="Copy install command">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
+        </details>
       </div>
       <div id="token-error" style="display:none">
         <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Error</h3>
@@ -1181,6 +1210,7 @@
       input.type = 'text';
       input.className = 'tab-rename-input';
       input.value = currentText;
+      input.placeholder = t.name;
       input.style.width = Math.max(60, label.offsetWidth + 8) + 'px';
 
       function commit() {
@@ -2183,6 +2213,7 @@
 
         showUpdateSection('update-done');
         // Server is restarting; auto-reload after a delay
+        skipBeforeUnload = true;
         setTimeout(() => { location.reload(); }, 4000);
       } catch (e) {
         document.getElementById('update-error-msg').textContent = e.message;
@@ -2208,6 +2239,12 @@
     });
     infoModal.addEventListener('click', (e) => {
       if (e.target === infoModal) infoModal.classList.remove('visible');
+    });
+
+    // rc.huny.dev website link
+    document.getElementById('menu-website').addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      window.open('https://rc.huny.dev', '_blank', 'noopener');
     });
 
     // Help & Docs
@@ -2302,6 +2339,31 @@
       }
     });
 
+    // Install commands per OS
+    const installCmds = {
+      linux: 'curl -fsSL https://github.com/hunydev/rc/releases/latest/download/rc-linux-amd64 -o /usr/local/bin/rc && chmod +x /usr/local/bin/rc',
+      mac: 'curl -fsSL https://github.com/hunydev/rc/releases/latest/download/rc-darwin-arm64 -o /usr/local/bin/rc && chmod +x /usr/local/bin/rc',
+      windows: 'curl -fsSL https://github.com/hunydev/rc/releases/latest/download/rc-windows-amd64.exe -o rc.exe'
+    };
+    let tokenSelectedOs = 'linux';
+    function updateInstallCmd() {
+      document.getElementById('token-install-code').textContent = installCmds[tokenSelectedOs];
+    }
+    document.querySelectorAll('.token-os-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.token-os-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        tokenSelectedOs = btn.dataset.os;
+        updateInstallCmd();
+      });
+    });
+    updateInstallCmd();
+    document.getElementById('token-copy-install').addEventListener('click', () => {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(installCmds[tokenSelectedOs]).then(() => tokenCopyFeedback(document.getElementById('token-copy-install')));
+      }
+    });
+
     // Logout
     menuLogout.addEventListener('click', () => {
       menuPopup.classList.remove('visible');
@@ -2310,8 +2372,10 @@
       location.reload();
     });
 
+    let skipBeforeUnload = false;
     window.addEventListener('beforeunload', (e) => {
       if (ws) ws.close();
+      if (skipBeforeUnload) return;
       e.preventDefault();
     });
 
