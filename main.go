@@ -59,6 +59,7 @@ var (
 	cfgLogFile        string
 	cfgTimeout        string
 	trustedProxy      bool
+	cfgUpdate         bool
 )
 
 var rootCmd = &cobra.Command{
@@ -106,6 +107,7 @@ func init() {
 	f.StringVar(&cfgLogFile, "log", "", "Log file path (default: stderr)")
 	f.StringVar(&cfgTimeout, "timeout", "", "Auto-shutdown after idle duration with no clients (e.g. 30m, 2h)")
 	f.BoolVar(&trustedProxy, "trusted-proxy", false, "Trust X-Forwarded-For / X-Real-Ip headers (set when behind a reverse proxy)")
+	f.BoolVar(&cfgUpdate, "update", false, "Check for updates and install if available")
 }
 
 func main() {
@@ -129,6 +131,11 @@ func run(cmd *cobra.Command, args []string) error {
 	// Password from environment variable (fallback, avoids leaking in ps)
 	if cfgPassword == "" {
 		cfgPassword = os.Getenv("RC_PASSWORD")
+	}
+
+	// CLI update mode: check and apply update, then exit
+	if cfgUpdate {
+		return runCLIUpdate()
 	}
 
 	// TLS validation: both cert and key must be provided together

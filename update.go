@@ -341,3 +341,48 @@ func writeUpdateJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
 }
+
+// runCLIUpdate checks for updates from the CLI and installs if available.
+func runCLIUpdate() error {
+	fmt.Printf("Current version: %s\n", version)
+	fmt.Println("Checking for updates...")
+
+	release, err := checkLatestRelease()
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+
+	upToDate := version != "dev" && compareVersions(version, release.TagName) >= 0
+	if upToDate {
+		fmt.Printf("Already up to date (%s).\n", version)
+		return nil
+	}
+
+	fmt.Printf("Update available: %s → %s\n", version, release.TagName)
+
+	asset := findAsset(release)
+	if asset == nil {
+		return fmt.Errorf("no binary found for %s/%s in release %s", runtime.GOOS, runtime.GOARCH, release.TagName)
+	}
+	fmt.Printf("Downloading %s (%.1f MB)...\n", asset.Name, float64(asset.Size)/(1024*1024))
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve executable path: %w", err)
+	}
+
+	if err := checkWritable(execPath); err != nil {
+		return fmt.Errorf("no write permission to %s: %w", execPath, err)
+	}
+
+	if err := downloadAndInstall(asset.BrowserDownloadURL, execPath); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+
+	fmt.Printf("Updated successfully: %s → %s\n", version, release.TagName)
+	return nil
+}
