@@ -194,6 +194,7 @@ function CLIReference() {
       <h3>Security Options</h3>
       <OptTable rows={[
         ['--password', '', '—', 'Password for server access. Env: RC_PASSWORD'],
+        ['--trusted-proxy', '', 'false', 'Trust X-Forwarded-For / X-Real-Ip headers (enable when behind reverse proxy)'],
         ['--tls-cert', '', '—', 'TLS certificate file path (enables HTTPS)'],
         ['--tls-key', '', '—', 'TLS private key file path'],
         ['--route', '', '—', 'URL route prefix (e.g. --route /myapp)'],
@@ -227,6 +228,7 @@ function CLIReference() {
 
       <h3>Information</h3>
       <OptTable rows={[
+        ['--update', '', '', 'Check for updates and install the latest version'],
         ['--version', '-v', '', 'Print version and exit'],
         ['--help', '-h', '', 'Show help message'],
       ]} />
@@ -264,16 +266,25 @@ function TabManagement() {
       </ul>
 
       <h3>Keyboard Shortcuts</h3>
-      <p>Switch between tabs with <strong>Alt+1</strong> through <strong>Alt+9</strong> (by position).</p>
+      <p>Switch between tabs with <strong>Alt+1</strong> through <strong>Alt+9</strong> (by position), or <strong>Alt+←/→</strong> for adjacent tabs.</p>
 
       <h3>Drag and Drop</h3>
-      <p>Reorder tabs by dragging them. The order is saved to localStorage and persists across page reloads per browser.</p>
+      <p>Reorder tabs by dragging them, including to the rightmost position. The order is saved to localStorage and persists across page reloads per browser.</p>
+
+      <h3>Horizontal Scroll</h3>
+      <p>When tabs overflow, use the mouse wheel on the tab bar to scroll horizontally (no Shift needed).</p>
+
+      <h3>Double-Click Rename</h3>
+      <p>Double-click any tab label to rename it. Custom names are saved to localStorage and restored on reload. <strong>Reset all tabs</strong> from the menu restores original names.</p>
 
       <h3>Tab Menu (☰)</h3>
       <p>The sticky menu button at the right end of the tab bar provides:</p>
       <ul>
+        <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> (shown when password is set; 5-minute expiry)</li>
         <li><strong>Close disconnected tabs</strong> — Remove all disconnected agent tabs at once</li>
-        <li><strong>Reset tab order</strong> — Clear saved order and restore the original server order</li>
+        <li><strong>Reset all tabs</strong> — Clear saved order, custom names, and restore the original layout</li>
+        <li><strong>Check for Updates</strong> — Check for and apply updates from the UI</li>
+        <li><strong>Help &amp; Docs</strong> — Quick guide with tab statuses, split pane, upload, shortcuts</li>
         <li><strong>About &amp; Licenses</strong> — Version info, author, GitHub link, open-source licenses</li>
         <li><strong>Logout</strong> — Clear authentication token and reload (shown only when logged in)</li>
       </ul>
@@ -354,6 +365,19 @@ function AgentMode() {
 ./rc -a serverA:8000 --password mysecret -c "htop"`}</CodeBlock>
       <Tip type="important">
         The agent's <code>--password</code> must match the hub's password exactly. The password is hashed with SHA-256 before being sent as a Bearer token.
+      </Tip>
+
+      <h3>Attach Token</h3>
+      <p>Instead of sharing the hub's actual password, you can generate a temporary <strong>attach token</strong> from the hub's web UI:</p>
+      <ol>
+        <li>Open the tab menu (☰) in the hub frontend and click <strong>🔑 Attach token</strong></li>
+        <li>A one-time-use token is generated with a <strong>5-minute expiry</strong></li>
+        <li>Copy the token and use it as the agent's <code>--password</code> value</li>
+      </ol>
+      <CodeBlock>{`# On the agent machine, use the generated token instead of the real password
+./rc -a hub.example.com:8000 --password <token> -c "htop"`}</CodeBlock>
+      <Tip type="note">
+        Attach tokens are single-use: once an agent authenticates with a token, the token is immediately invalidated. The menu item is only visible when the hub is running with <code>--password</code>.
       </Tip>
 
       <h3>Auto-Reconnect</h3>
@@ -441,6 +465,21 @@ RC_PASSWORD=mysecret ./rc -c "bash"`}</CodeBlock>
         </table>
       </div>
       <p>Lockout is IP-based (supports <code>X-Forwarded-For</code> and <code>X-Real-Ip</code> for reverse proxy setups). Bearer token authentication is never affected by rate limiting.</p>
+
+      <h3>Attach Tokens</h3>
+      <p>Generate temporary one-time-use tokens for agent authentication — avoid sharing the actual hub password:</p>
+      <ul>
+        <li>Open the <strong>☰ menu</strong> and click <strong>🔑 Attach token</strong></li>
+        <li>A 40-character hex token is generated using <code>crypto/rand</code></li>
+        <li>The token is stored as a SHA-256 hash (the raw token is never stored server-side)</li>
+        <li>Tokens expire after <strong>5 minutes</strong> and are <strong>single-use</strong> — once an agent authenticates, the token is immediately invalidated</li>
+        <li>The agent uses the token as <code>--password</code>; it is hashed client-side just like a normal password</li>
+      </ul>
+
+      <h3>Trusted Proxy</h3>
+      <p>When running behind a reverse proxy (e.g., nginx), enable <code>--trusted-proxy</code> to read the real client IP from <code>X-Forwarded-For</code> / <code>X-Real-Ip</code> headers:</p>
+      <CodeBlock>{`./rc --trusted-proxy --password secret -c "bash"`}</CodeBlock>
+      <p>This affects rate limiting, tab tooltips (agent IP display), and logging. Without this flag, all clients appear as <code>127.0.0.1</code> when behind a proxy.</p>
 
       <Tip type="warning">
         Use <code>RC_PASSWORD</code> environment variable instead of <code>--password</code> flag when possible. CLI flags are visible in <code>ps</code> output.
@@ -715,7 +754,10 @@ function Frontend() {
       <p>The login page has no visual flash of terminal content — the app is hidden until authentication resolves.</p>
 
       <h3>Disconnect Overlay</h3>
-      <p>When the WebSocket disconnects, a full-screen overlay appears with a "Reconnect" button. All input is blocked while disconnected. The connection auto-retries with exponential backoff.</p>
+      <p>When the WebSocket disconnects, rc applies a <strong>grace retry</strong>: the first disconnect after a successful connection triggers one automatic reconnection attempt before showing the overlay. If the retry also fails, or if the page has never been connected, the full-screen overlay appears immediately with a "Reconnect" button.</p>
+
+      <h3>Leave Confirmation</h3>
+      <p>Closing or navigating away from the hub page triggers a browser <code>beforeunload</code> confirmation dialog to prevent accidental disconnection from active sessions.</p>
 
       <h3>Mobile Touch Keyboard</h3>
       <p>On touch devices, a floating keyboard icon (bottom-right) opens a helper panel:</p>
