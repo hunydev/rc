@@ -252,9 +252,10 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
   - **Alt+1~9** — keyboard shortcut to switch tabs by position
   - **Hover tooltip** — shows user, PID, and address (remote tabs: `user@ip, pid: 1234`)
   - **Drag-and-drop** — reorder tabs by dragging; order saved to localStorage per browser
+  - **Double-click rename** — double-click any tab label to rename it; saved to localStorage, restored on reload
   - **☰ Menu** — sticky button at right end of tab bar; tabable action menu:
     - **Close disconnected tabs** — removes all disconnected agent tabs at once
-    - **Reset tab order** — clears saved tab order (localStorage) and restores original order
+    - **Reset tab order** — clears saved tab order, custom names, and restores original order
     - **Check for Updates** — opens update modal to check and apply updates from the UI
     - **Help & Docs** — opens guide with tab statuses, split pane, upload, shortcuts, and link to full docs
     - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
@@ -273,7 +274,8 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
 - **Login page** — automatic login overlay when password is set; token stored in session. No flash of terminal content before login screen.
 - **Dynamic header** — Shows logo, hostname, working directory (left-truncated on narrow screens); switches to remote agent info when viewing remote tabs
 - **Restart bar** — appears when active tab's command exits; click to restart (hidden with `--no-restart`)
-- **Disconnect overlay** — appears on WebSocket disconnect with auto-reconnect (exponential backoff, 1s → 30s max); manual Reconnect button also available
+- **Disconnect overlay** — appears on WebSocket disconnect with auto-reconnect (exponential backoff, 1s → 30s max); manual Reconnect button also available. First disconnect after a stable connection silently retries once before showing the overlay (avoids flash on page refresh).
+- **Leave confirmation** — browser shows a confirmation dialog when closing or navigating away from the page
 - **Upload modal** — when `--upload` is enabled, an upload icon appears next to the workspace path for tabs that support it (per-tab); supports drag-and-drop, progress bar, and duplicate file rejection. Agent tabs also show upload when the agent runs with `--upload`.
 - **Floating helper button** (mobile/touch) — bottom-right SVG keyboard icon opens panel without triggering virtual keyboard:
   - Arrow keys
@@ -290,7 +292,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.2`). Update in-place with `rc --update` or via the web UI menu.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.6.3`). Update in-place with `rc --update` or via the web UI menu.
 
 ## Platform Notes
 
