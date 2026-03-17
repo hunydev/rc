@@ -478,7 +478,7 @@
     #token-modal.visible { display: flex; }
     .token-box {
       background: #181825; padding: 24px 28px; border-radius: 12px;
-      border: 1px solid #313244; width: 420px; max-width: 90vw;
+      border: 1px solid #313244; width: 480px; max-width: 90vw;
     }
     .token-box h3 { color: #89b4fa; margin: 0 0 14px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
     .token-box p { color: #6c7086; font-size: 12px; margin: 0; }
@@ -490,19 +490,28 @@
     }
     .token-display code { color: #a6e3a1; font-size: 13px; flex: 1; word-break: break-all; user-select: all; -webkit-user-select: all; }
     .token-copy {
-      background: none; border: none; cursor: pointer; font-size: 16px;
-      padding: 2px 6px; border-radius: 4px; transition: background 0.15s;
+      background: none; border: none; cursor: pointer;
+      padding: 4px 6px; border-radius: 4px; transition: background 0.15s;
+      display: flex; align-items: center; flex-shrink: 0; color: #6c7086;
     }
-    .token-copy:hover { background: #313244; }
+    .token-copy:hover { background: #313244; color: #a6adc8; }
+    .token-copy svg { width: 14px; height: 14px; }
     .token-example {
+      display: flex; align-items: center; gap: 8px;
       background: #1e1e2e; border: 1px solid #313244; border-radius: 8px;
       padding: 8px 12px; margin: 8px 0; overflow-x: auto;
     }
-    .token-example code { color: #cdd6f4; font-size: 11px; white-space: nowrap; }
+    .token-example code { color: #cdd6f4; font-size: 11px; white-space: nowrap; flex: 1; }
     .token-expiry {
       color: #f9e2af; font-size: 12px; margin-top: 8px; text-align: center;
     }
     .token-error-msg { color: #f38ba8; font-size: 13px; margin-top: 8px; }
+    .token-box .token-close {
+      margin-top: 16px; width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
+      font-size: 13px; cursor: pointer; transition: background 0.15s;
+    }
+    .token-box .token-close:hover { background: #313244; }
 
     #upload-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -635,22 +644,27 @@
         <h3><span class="update-spinner"></span> Generating Token</h3>
       </div>
       <div id="token-result" style="display:none">
-        <h3>🔑 Attach Token</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Attach Token</h3>
         <p style="color:#a6adc8; font-size:12px; margin-bottom:12px;">Use this token as <code>--password</code> when attaching an agent:</p>
         <div class="token-display">
           <code id="token-value"></code>
-          <button class="token-copy" id="token-copy-btn" title="Copy">📋</button>
+          <button class="token-copy" id="token-copy-btn" title="Copy token">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
         </div>
         <div class="token-example">
-          <code>rc --attach <span style="color:#585b70">HUB_URL</span> --password <span id="token-example-val" style="color:#a6e3a1"></span></code>
+          <code>rc --attach <span id="token-hub-url" style="color:#89b4fa"></span> --password <span id="token-example-val" style="color:#a6e3a1"></span></code>
+          <button class="token-copy" id="token-copy-cmd" title="Copy command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
         </div>
         <div class="token-expiry" id="token-expiry"></div>
       </div>
       <div id="token-error" style="display:none">
-        <h3>❌ Error</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Error</h3>
         <div class="token-error-msg" id="token-error-msg"></div>
       </div>
-      <button class="info-close" id="token-close">Close</button>
+      <button class="token-close" id="token-close">Close</button>
     </div>
   </div>
 
@@ -677,16 +691,16 @@
   <!-- Help Modal -->
   <div id="help-modal" role="dialog" aria-label="Help" aria-modal="true">
     <div class="help-box">
-      <h3>📖 Help &amp; Docs</h3>
+      <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> Help &amp; Docs</h3>
       <p><strong>rc</strong> is a browser-based remote terminal. Each tab runs a command on the server. Here's how to get the most out of it.</p>
 
       <div class="help-sep"></div>
       <h3>Tab Management</h3>
-      <div class="help-row"><span class="help-icon">🟢</span> <span><strong>Running</strong> — process is active</span></div>
-      <div class="help-row"><span class="help-icon">🟡</span> <span><strong>Idle</strong> — no output for a while (pulsing)</span></div>
-      <div class="help-row"><span class="help-icon">🔴</span> <span><strong>Exited</strong> — process has ended; click <strong>↻ Restart</strong> at the bottom to relaunch</span></div>
-      <div class="help-row"><span class="help-icon">⚫</span> <span><strong>Disconnected</strong> — remote agent went offline</span></div>
-      <div class="help-row"><span class="help-icon">🟣</span> <span><strong>Purple ring</strong> — tab is from a remote agent</span></div>
+      <div class="help-row"><span class="help-icon"><span style="color:#a6e3a1">●</span></span> <span><strong>Running</strong> — process is active</span></div>
+      <div class="help-row"><span class="help-icon"><span style="color:#f9e2af">●</span></span> <span><strong>Idle</strong> — no output for a while (pulsing)</span></div>
+      <div class="help-row"><span class="help-icon"><span style="color:#f38ba8">●</span></span> <span><strong>Exited</strong> — process has ended; click <strong>↻ Restart</strong> at the bottom to relaunch</span></div>
+      <div class="help-row"><span class="help-icon"><span style="color:#585b70">●</span></span> <span><strong>Disconnected</strong> — remote agent went offline</span></div>
+      <div class="help-row"><span class="help-icon"><span style="color:#cba6f7">◎</span></span> <span><strong>Purple ring</strong> — tab is from a remote agent</span></div>
       <p>Switch tabs with <kbd>Alt+1</kbd> – <kbd>Alt+9</kbd> or <kbd>Alt+←/→</kbd>. Drag tabs to reorder. Double-click a tab label to rename it. Scroll the tab bar with your mouse wheel.</p>
 
       <div class="help-sep"></div>
@@ -696,11 +710,11 @@
       <div class="help-sep"></div>
       <h3>Tab Menu ☰</h3>
       <p>The menu button at the right end of the tab bar provides:</p>
-      <div class="help-row"><span class="help-icon">✕</span> <span><strong>Close disconnected tabs</strong> — remove offline agent tabs</span></div>
-      <div class="help-row"><span class="help-icon">↺</span> <span><strong>Reset all tabs</strong> — restore original order and names</span></div>
-      <div class="help-row"><span class="help-icon">🔑</span> <span><strong>Attach token</strong> — generate a temporary one-time token for agent <code>--attach</code> (shown when password is set)</span></div>
-      <div class="help-row"><span class="help-icon">🔄</span> <span><strong>Check for Updates</strong> — update rc from the UI</span></div>
-      <div class="help-row"><span class="help-icon">ℹ</span> <span><strong>About &amp; Licenses</strong> — version and credits</span></div>
+      <div class="help-row"><span class="help-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span> <span><strong>Close disconnected tabs</strong> — remove offline agent tabs</span></div>
+      <div class="help-row"><span class="help-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></span> <span><strong>Reset all tabs</strong> — restore original order and names</span></div>
+      <div class="help-row"><span class="help-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span> <span><strong>Attach token</strong> — generate a temporary one-time token for agent <code>--attach</code> (shown when password is set)</span></div>
+      <div class="help-row"><span class="help-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></span> <span><strong>Check for Updates</strong> — update rc from the UI</span></div>
+      <div class="help-row"><span class="help-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span> <span><strong>About &amp; Licenses</strong> — version and credits</span></div>
 
       <div class="help-sep"></div>
       <h3>File Upload</h3>
@@ -713,7 +727,7 @@
 
       <div class="help-sep"></div>
       <p>For detailed documentation on CLI options, agent mode, deployment, security, and more:</p>
-      <p><a href="https://rc.huny.dev/#/docs" target="_blank" rel="noopener">📚 rc.huny.dev — Full Documentation</a></p>
+      <p><a href="https://rc.huny.dev/#/docs" target="_blank" rel="noopener"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> rc.huny.dev — Full Documentation</a></p>
       <button class="help-close" id="help-close">Close</button>
     </div>
   </div>
@@ -726,7 +740,7 @@
         <div class="update-status">Contacting GitHub...</div>
       </div>
       <div id="update-available" style="display:none">
-        <h3>📦 Update Available</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> Update Available</h3>
         <div class="update-versions">
           <div class="update-ver-row">
             <span class="ver-label">Current</span>
@@ -742,7 +756,7 @@
         <button class="update-btn" id="update-apply-btn">Update &amp; Restart</button>
       </div>
       <div id="update-uptodate" style="display:none">
-        <h3>✅ Up to Date</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Up to Date</h3>
         <div class="update-status success">You're running the latest version.</div>
         <div class="update-ver-row" style="justify-content:center; padding:8px 0;">
           <span class="ver-value" id="update-current-ok"></span>
@@ -753,11 +767,11 @@
         <div class="update-status">Downloading and installing. The server will restart shortly.</div>
       </div>
       <div id="update-done" style="display:none">
-        <h3>✅ Update Installed</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Update Installed</h3>
         <div class="update-status success">Restarting server... The page will reload automatically.</div>
       </div>
       <div id="update-error" style="display:none">
-        <h3>❌ Update Failed</h3>
+        <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Update Failed</h3>
         <div class="update-status error" id="update-error-msg"></div>
       </div>
       <button class="update-close" id="update-close-btn">Close</button>
@@ -2210,6 +2224,17 @@
 
     // Attach Token
     let tokenCountdown = null;
+    const copySvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    function tokenCopyFeedback(btn) {
+      btn.innerHTML = checkSvg;
+      setTimeout(() => { btn.innerHTML = copySvg; }, 1500);
+    }
+    function getHubUrl() {
+      const proto = location.protocol === 'https:' ? 'https://' : 'http://';
+      const host = location.host;
+      return proto + host + routePrefix;
+    }
     menuAttachToken.addEventListener('click', async () => {
       menuPopup.classList.remove('visible');
       document.getElementById('token-generating').style.display = '';
@@ -2226,6 +2251,7 @@
         const data = await res.json();
         document.getElementById('token-value').textContent = data.token;
         document.getElementById('token-example-val').textContent = data.token;
+        document.getElementById('token-hub-url').textContent = getHubUrl();
         document.getElementById('token-generating').style.display = 'none';
         document.getElementById('token-result').style.display = '';
         // Countdown timer
@@ -2266,10 +2292,13 @@
     document.getElementById('token-copy-btn').addEventListener('click', () => {
       const val = document.getElementById('token-value').textContent;
       if (navigator.clipboard) {
-        navigator.clipboard.writeText(val).then(() => {
-          document.getElementById('token-copy-btn').textContent = '✅';
-          setTimeout(() => { document.getElementById('token-copy-btn').textContent = '📋'; }, 1500);
-        });
+        navigator.clipboard.writeText(val).then(() => tokenCopyFeedback(document.getElementById('token-copy-btn')));
+      }
+    });
+    document.getElementById('token-copy-cmd').addEventListener('click', () => {
+      const cmd = 'rc --attach ' + getHubUrl() + ' --password ' + document.getElementById('token-value').textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(cmd).then(() => tokenCopyFeedback(document.getElementById('token-copy-cmd')));
       }
     });
 

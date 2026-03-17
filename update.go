@@ -10,12 +10,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -296,7 +296,7 @@ func extractTarGzBinary(r io.Reader, destPath string) error {
 	}
 }
 
-// performRestart gracefully shuts down the server and re-execs the binary at execPath with same args/env.
+// performRestart gracefully shuts down the server and starts the new binary at execPath with same args/env.
 func performRestart(server *http.Server, closeFn func(), execPath string) {
 	time.Sleep(1 * time.Second) // allow HTTP response to flush
 
@@ -307,16 +307,29 @@ func performRestart(server *http.Server, closeFn func(), execPath string) {
 		closeFn()
 	}
 
-	// Graceful HTTP shutdown
+	// Graceful HTTP shutdown (frees the port)
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	server.Shutdown(ctx)
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Shutdown warning: %v", err)
+	}
+
+	// Start new process fully detached (new session / process group)
+	cmd := exec.Command(execPath, os.Args[1:]...)
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = nil
+	cmd.SysProcAttr = daemonSysProcAttr()
 
 	log.Printf("Restarting: %s %v", execPath, os.Args[1:])
-	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
-		log.Printf("Restart failed: exec error: %v", err)
+	if err := cmd.Start(); err != nil {
+		log.Printf("Restart failed: %v", err)
 		os.Exit(1)
 	}
+
+	log.Printf("New process started (pid=%d), exiting old process.", cmd.Process.Pid)
+	os.Exit(0)
 }
 
 // checkWritable verifies we can create/rename files in the directory containing path.
