@@ -692,6 +692,10 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		agentHostname = regMsg.Tabs[0].Hostname
 		agentWorkspace = regMsg.Tabs[0].Workspace
 	}
+	// If the connection comes from loopback, use the agent's hostname instead
+	if ip := net.ParseIP(agentAddr); ip != nil && ip.IsLoopback() && agentHostname != "" {
+		agentAddr = agentHostname
+	}
 
 	h.mu.Lock()
 	baseTab := len(h.tabs)
