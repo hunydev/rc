@@ -350,12 +350,12 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Update restart: wait for update signal, then gracefully restart with same args
 	go func() {
-		<-restartChan
+		execPath := <-restartChan
 		performRestart(server, func() {
 			for _, s := range sessions {
 				s.PtyMgr.Close()
 			}
-		})
+		}, execPath)
 	}()
 
 	// Idle timeout: auto-shutdown when no clients are connected

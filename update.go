@@ -24,8 +24,8 @@ const (
 	updateHTTPTimeout = 60 * time.Second
 )
 
-// restartChan signals the main goroutine to gracefully restart the process.
-var restartChan = make(chan struct{}, 1)
+// restartChan carries the executable path for the main goroutine to re-exec.
+var restartChan = make(chan string, 1)
 
 // updateMu prevents concurrent update operations.
 var updateMu sync.Mutex
@@ -219,9 +219,9 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		"message": "Update installed. Restarting...",
 	})
 
-	// Trigger restart (non-blocking send)
+	// Trigger restart with the known exec path (non-blocking send)
 	select {
-	case restartChan <- struct{}{}:
+	case restartChan <- execPath:
 	default:
 	}
 }
@@ -296,8 +296,8 @@ func extractTarGzBinary(r io.Reader, destPath string) error {
 	}
 }
 
-// performRestart gracefully shuts down the server and re-execs the current binary with same args/env.
-func performRestart(server *http.Server, closeFn func()) {
+// performRestart gracefully shuts down the server and re-execs the binary at execPath with same args/env.
+func performRestart(server *http.Server, closeFn func(), execPath string) {
 	time.Sleep(1 * time.Second) // allow HTTP response to flush
 
 	log.Println("Restarting for update...")
@@ -311,14 +311,6 @@ func performRestart(server *http.Server, closeFn func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	server.Shutdown(ctx)
-
-	// Re-exec with same arguments and environment
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Printf("Restart failed: cannot determine executable: %v", err)
-		os.Exit(1)
-	}
-	execPath, _ = filepath.EvalSymlinks(execPath)
 
 	log.Printf("Restarting: %s %v", execPath, os.Args[1:])
 	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
