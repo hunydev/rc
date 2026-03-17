@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,12 +30,15 @@ var staticFiles embed.FS
 var version = "dev"
 
 const (
-	maxUploadSize     = 100 * 1024 * 1024 // 100 MB
-	httpReadTimeout   = 30 * time.Second
-	httpWriteTimeout  = 0 // disabled: WebSocket requires long-lived writes
-	httpIdleTimeout   = 120 * time.Second
-	shutdownTimeout   = 5 * time.Second
+	defaultMaxUploadMB = 100
+	hardMaxUploadMB    = 1024               // 1 GB absolute ceiling
+	httpReadTimeout    = 30 * time.Second
+	httpWriteTimeout   = 0 // disabled: WebSocket requires long-lived writes
+	httpIdleTimeout    = 120 * time.Second
+	shutdownTimeout    = 5 * time.Second
 )
+
+var maxUploadSize int64 = defaultMaxUploadMB * 1024 * 1024
 
 var (
 	cfgPort           int
@@ -60,6 +64,7 @@ var (
 	cfgMaxConnections int
 	cfgLogFile        string
 	cfgTimeout        string
+	cfgMaxUploadSize  int
 	trustedProxy      bool
 	cfgUpdate         bool
 )
@@ -108,6 +113,7 @@ func init() {
 	f.IntVar(&cfgMaxConnections, "max-connections", 0, "Maximum concurrent WebSocket clients (0 = unlimited)")
 	f.StringVar(&cfgLogFile, "log", "", "Log file path (default: stderr)")
 	f.StringVar(&cfgTimeout, "timeout", "", "Auto-shutdown after idle duration with no clients (e.g. 30m, 2h)")
+	f.IntVar(&cfgMaxUploadSize, "max-upload-size", defaultMaxUploadMB, "Maximum upload file size in MB (env: RC_MAX_UPLOAD_SIZE, max: 1024)")
 	f.BoolVar(&trustedProxy, "trusted-proxy", false, "Trust X-Forwarded-For / X-Real-Ip headers (set when behind a reverse proxy)")
 	f.BoolVar(&cfgUpdate, "update", false, "Check for updates and install if available")
 }
@@ -157,6 +163,22 @@ func run(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("--timeout must be a positive duration")
 		}
 	}
+
+	// Upload size configuration: CLI flag > env var > default
+	if !cmd.Flags().Changed("max-upload-size") {
+		if envVal := os.Getenv("RC_MAX_UPLOAD_SIZE"); envVal != "" {
+			if v, err := strconv.Atoi(envVal); err == nil && v > 0 {
+				cfgMaxUploadSize = v
+			}
+		}
+	}
+	if cfgMaxUploadSize > hardMaxUploadMB {
+		cfgMaxUploadSize = hardMaxUploadMB
+	}
+	if cfgMaxUploadSize < 1 {
+		cfgMaxUploadSize = 1
+	}
+	maxUploadSize = int64(cfgMaxUploadSize) * 1024 * 1024
 
 	// Daemon mode: re-exec self without -d/--daemon, fully detached
 	if cfgDaemon {
@@ -256,7 +278,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
-	hub := NewHub(ptyMgrs, bufs, tabNames, currentUser, cfgNoRestart, cfgReadonly, cfgUpload, cfgMaxConnections)
+	hub := NewHub(ptyMgrs, bufs, tabNames, cfgCommands, currentUser, cfgNoRestart, cfgReadonly, cfgUpload, cfgMaxConnections)
 	for i, s := range sessions {
 		hub.StartOutputPump(i, s.PtyMgr.OutputChan())
 	}
@@ -294,6 +316,9 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 		if cfgTitle != "" {
 			info["title"] = cfgTitle
+		}
+		if cfgUpload {
+			info["maxUploadSize"] = cfgMaxUploadSize
 		}
 		if err := json.NewEncoder(w).Encode(info); err != nil {
 			log.Printf("Failed to encode /info response: %v", err)

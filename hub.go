@@ -66,6 +66,7 @@ func extractIP(r *http.Request) string {
 // TabEntry represents a terminal session, either local or remote (agent-backed).
 type TabEntry struct {
 	Name      string
+	Command   string
 	Remote    bool
 	Removed   bool
 	Buf       *OutputBuffer
@@ -169,6 +170,7 @@ type WSMessage struct {
 // TabInfo describes a tab in the 'tabs' message.
 type TabInfo struct {
 	Name      string `json:"name"`
+	Command   string `json:"command,omitempty"`
 	Remote    bool   `json:"remote,omitempty"`
 	Removed   bool   `json:"removed,omitempty"`
 	Pid       int    `json:"pid,omitempty"`
@@ -182,7 +184,7 @@ type TabInfo struct {
 }
 
 // NewHub creates a new Hub with local PTY sessions.
-func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, currentUser string, noRestart, readonly, upload bool, maxConnections int) *Hub {
+func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames, commands []string, currentUser string, noRestart, readonly, upload bool, maxConnections int) *Hub {
 	hostname, _ := os.Hostname()
 	workspace, _ := os.Getwd()
 	h := &Hub{
@@ -198,8 +200,13 @@ func NewHub(ptyMgrs []*PTYManager, bufs []*OutputBuffer, tabNames []string, curr
 		pendingUploads: make(map[int]chan uploadResult),
 	}
 	for i := range ptyMgrs {
+		cmd := ""
+		if i < len(commands) {
+			cmd = commands[i]
+		}
 		h.tabs[i] = &TabEntry{
 			Name:      tabNames[i],
+			Command:   cmd,
 			Buf:       bufs[i],
 			Status:    "running",
 			PtyMgr:    ptyMgrs[i],
@@ -219,6 +226,7 @@ func (h *Hub) getTabInfos() []TabInfo {
 	for i, t := range h.tabs {
 		infos[i] = TabInfo{
 			Name:      t.Name,
+			Command:   t.Command,
 			Remote:    t.Remote,
 			Removed:   t.Removed,
 			User:      t.User,
@@ -703,6 +711,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	for i, ti := range regMsg.Tabs {
 		h.tabs = append(h.tabs, &TabEntry{
 			Name:      ti.Name,
+			Command:   ti.Command,
 			Remote:    true,
 			Buf:       NewOutputBuffer(remoteTabBufBytes),
 			Status:    "running",
@@ -726,6 +735,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	for i, ti := range regMsg.Tabs {
 		tabIdx := baseTab + i
 		meta := &TabInfo{
+			Command:   ti.Command,
 			User:      agentUser,
 			Hostname:  agentHostname,
 			Workspace: agentWorkspace,

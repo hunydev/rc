@@ -31,9 +31,10 @@ type Agent struct {
 }
 
 type agentSession struct {
-	Name   string
-	PtyMgr *PTYManager
-	Buf    *OutputBuffer
+	Name    string
+	Command string
+	PtyMgr  *PTYManager
+	Buf     *OutputBuffer
 }
 
 // RunAgent starts rc in agent mode, attaching local PTYs to a remote hub.
@@ -56,7 +57,7 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 		} else {
 			name = fmt.Sprintf("%s: %s", hostname, cmd)
 		}
-		sessions[i] = &agentSession{Name: name, PtyMgr: ptyMgr, Buf: buf}
+		sessions[i] = &agentSession{Name: name, Command: cmd, PtyMgr: ptyMgr, Buf: buf}
 	}
 
 	agent := &Agent{
@@ -213,6 +214,7 @@ func (a *Agent) connect() error {
 	for i, s := range a.sessions {
 		tabInfos[i] = TabInfo{
 			Name:      s.Name,
+			Command:   s.Command,
 			Hostname:  hostname,
 			Workspace: workspace,
 			NoRestart: a.noRestart,
