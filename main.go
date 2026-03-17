@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -340,8 +342,15 @@ func run(cmd *cobra.Command, args []string) error {
 	}))
 
 	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
+
+	// Create listener explicitly so performRestart can close/re-create it
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %v", addr, err)
+	}
+	serverLn = ln
+
 	server := &http.Server{
-		Addr:        addr,
 		Handler:     securityHeaders(mux),
 		ReadTimeout: httpReadTimeout,
 		IdleTimeout: httpIdleTimeout,
@@ -416,15 +425,27 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if tlsEnabled {
 		log.Printf("  TLS: cert=%s key=%s", cfgTLSCert, cfgTLSKey)
-		if err := server.ListenAndServeTLS(cfgTLSCert, cfgTLSKey); err != http.ErrServerClosed {
-			return fmt.Errorf("server error: %v", err)
-		}
-	} else {
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			return fmt.Errorf("server error: %v", err)
-		}
 	}
-	return nil
+
+	// Serve loop: re-enters when restart recovery re-creates the listener
+	for {
+		var serveErr error
+		if tlsEnabled {
+			serveErr = server.ServeTLS(serverLn, cfgTLSCert, cfgTLSKey)
+		} else {
+			serveErr = server.Serve(serverLn)
+		}
+		if serveErr == http.ErrServerClosed {
+			return nil // clean shutdown (signal or idle timeout)
+		}
+		if atomic.LoadInt32(&restarting) == 1 {
+			// Listener was closed for restart; wait for recovery or process exit
+			<-restartReady
+			log.Println("Restart recovery: resuming serve")
+			continue
+		}
+		return fmt.Errorf("server error: %v", serveErr)
+	}
 }
 
 // daemonize re-executes the current binary without -d/--daemon, fully detached.

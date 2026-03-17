@@ -3,11 +3,11 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +27,15 @@ const (
 
 // restartChan carries the executable path for the main goroutine to re-exec.
 var restartChan = make(chan string, 1)
+
+// serverLn is the active net.Listener, set by main and used by performRestart for recovery.
+var serverLn net.Listener
+
+// restarting is set to 1 when a restart is in progress; main's serve loop checks this.
+var restarting int32
+
+// restartReady signals the main serve loop to re-serve after a failed restart recovery.
+var restartReady = make(chan struct{}, 1)
 
 // updateMu prevents concurrent update operations.
 var updateMu sync.Mutex
@@ -211,7 +221,16 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Update installed: %s → %s", version, release.TagName)
+	// Verify new binary is executable
+	out, err := exec.Command(execPath, "-v").CombinedOutput()
+	if err != nil {
+		writeUpdateJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("new binary verification failed: %v (%s)", err, strings.TrimSpace(string(out))),
+		})
+		return
+	}
+	newVersion := strings.TrimSpace(string(out))
+	log.Printf("Update verified: %s → %s", version, newVersion)
 
 	writeUpdateJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -296,25 +315,20 @@ func extractTarGzBinary(r io.Reader, destPath string) error {
 	}
 }
 
-// performRestart gracefully shuts down the server and starts the new binary at execPath with same args/env.
+// performRestart closes the listener, starts the new binary, and either exits or recovers.
+// Flow: close listener (free port) → start new process → verify it's alive → exit old.
+// If the new process fails to start or exits immediately, re-listen and resume serving.
 func performRestart(server *http.Server, closeFn func(), execPath string) {
 	time.Sleep(1 * time.Second) // allow HTTP response to flush
 
 	log.Println("Restarting for update...")
+	atomic.StoreInt32(&restarting, 1)
 
-	// Close sessions/resources
-	if closeFn != nil {
-		closeFn()
-	}
+	// Close listener to free the port (server.Serve returns in main loop)
+	addr := serverLn.Addr().String()
+	serverLn.Close()
 
-	// Graceful HTTP shutdown (frees the port)
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("Shutdown warning: %v", err)
-	}
-
-	// Start new process fully detached (new session / process group)
+	// Start new process fully detached
 	cmd := exec.Command(execPath, os.Args[1:]...)
 	cmd.Env = os.Environ()
 	cmd.Stdout = os.Stdout
@@ -322,14 +336,45 @@ func performRestart(server *http.Server, closeFn func(), execPath string) {
 	cmd.Stdin = nil
 	cmd.SysProcAttr = daemonSysProcAttr()
 
-	log.Printf("Restarting: %s %v", execPath, os.Args[1:])
+	log.Printf("Starting new process: %s %v", execPath, os.Args[1:])
 	if err := cmd.Start(); err != nil {
-		log.Printf("Restart failed: %v", err)
-		os.Exit(1)
+		log.Printf("Failed to start new process: %v — recovering", err)
+		recoverListener(server, addr)
+		return
 	}
 
-	log.Printf("New process started (pid=%d), exiting old process.", cmd.Process.Pid)
+	// Wait briefly to check if the new process stays alive
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		// New process exited immediately — failed
+		log.Printf("New process exited immediately: %v — recovering", err)
+		recoverListener(server, addr)
+		return
+	case <-time.After(2 * time.Second):
+		// Still running after 2s — success
+	}
+
+	log.Printf("New process running (pid=%d), exiting old process.", cmd.Process.Pid)
+	if closeFn != nil {
+		closeFn()
+	}
 	os.Exit(0)
+}
+
+// recoverListener re-creates the listener and signals the main serve loop to resume.
+func recoverListener(server *http.Server, addr string) {
+	newLn, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("Cannot recover listener on %s: %v — exiting", addr, err)
+		os.Exit(1)
+	}
+	serverLn = newLn
+	atomic.StoreInt32(&restarting, 0)
+	restartReady <- struct{}{}
+	log.Printf("Recovered: listening on %s again", addr)
 }
 
 // checkWritable verifies we can create/rename files in the directory containing path.
