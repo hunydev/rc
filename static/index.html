@@ -103,6 +103,11 @@
     .tab-split-btn:hover { color: #89b4fa; }
     .tab-item:hover .tab-split-btn { display: inline; }
     .tab-item.active .tab-split-btn { display: none; }
+    .tab-item .tab-rename-input {
+      background: #1e1e2e; color: #cdd6f4; border: 1px solid #89b4fa;
+      border-radius: 3px; font-size: 12px; font-family: inherit;
+      padding: 0 4px; width: 80px; outline: none;
+    }
     .tab-item.dragging { opacity: 0.4; }
     .tab-item.drag-over { border-left: 2px solid #89b4fa; }
 
@@ -930,6 +935,10 @@
         splitToRight(idx);
       });
 
+      const labelEl = document.createElement('span');
+      labelEl.textContent = name;
+      labelEl.addEventListener('dblclick', (e) => { e.stopPropagation(); startTabRename(idx); });
+
       if (remote) {
         dot.classList.add('remote-dot');
         closeEl = document.createElement('span');
@@ -940,16 +949,12 @@
           sendWS({ type: 'close_tab', tab: idx });
         });
         tabEl.appendChild(dot);
-        const label = document.createElement('span');
-        label.textContent = name;
-        tabEl.appendChild(label);
+        tabEl.appendChild(labelEl);
         tabEl.appendChild(splitBtn);
         tabEl.appendChild(closeEl);
       } else {
-        const label = document.createElement('span');
-        label.textContent = name;
         tabEl.appendChild(dot);
-        tabEl.appendChild(label);
+        tabEl.appendChild(labelEl);
         tabEl.appendChild(splitBtn);
       }
       tabEl.addEventListener('click', () => switchTab(idx));
@@ -982,7 +987,12 @@
         }
       });
 
-      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, closeEl, splitBtn, meta, split: false, splitEntry: null, lastOutputAt: Date.now() };
+      const customName = loadTabName(idx);
+      if (customName) {
+        labelEl.textContent = customName;
+      }
+
+      tabs[idx] = { name, remote: !!remote, term: t, fitAddon: fit, wrapper, status: 'running', dotEl: dot, tabEl, labelEl, closeEl, splitBtn, meta, split: false, splitEntry: null, lastOutputAt: Date.now() };
 
       if (isFirst) {
         activeTab = idx;
@@ -1028,6 +1038,69 @@
           }
         });
       } catch (e) {}
+    }
+
+    // ───── Tab Rename ─────
+    function saveTabName(idx, name) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('rc-tab-names') || '{}');
+        if (name) saved[idx] = name; else delete saved[idx];
+        localStorage.setItem('rc-tab-names', JSON.stringify(saved));
+      } catch (e) {}
+    }
+    function loadTabName(idx) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('rc-tab-names') || '{}');
+        return saved[idx] || null;
+      } catch (e) { return null; }
+    }
+    function startTabRename(idx) {
+      const t = tabs[idx];
+      if (!t || !t.labelEl) return;
+      const label = t.labelEl;
+      const currentText = label.textContent;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'tab-rename-input';
+      input.value = currentText;
+      input.style.width = Math.max(60, label.offsetWidth + 8) + 'px';
+
+      function commit() {
+        const val = input.value.trim();
+        if (val && val !== t.name) {
+          label.textContent = val;
+          saveTabName(idx, val);
+          // Update split header if split
+          if (t.splitEntry) {
+            const sn = t.splitEntry.querySelector('.split-name');
+            if (sn) sn.textContent = val;
+          }
+        } else if (!val) {
+          label.textContent = t.name;
+          saveTabName(idx, null);
+          if (t.splitEntry) {
+            const sn = t.splitEntry.querySelector('.split-name');
+            if (sn) sn.textContent = t.name;
+          }
+        } else {
+          label.textContent = currentText;
+        }
+        label.style.display = '';
+        input.remove();
+      }
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = currentText; input.blur(); }
+        e.stopPropagation();
+      });
+      input.addEventListener('click', (e) => e.stopPropagation());
+
+      label.style.display = 'none';
+      label.parentNode.insertBefore(input, label.nextSibling);
+      input.focus();
+      input.select();
     }
 
     // ───── Split State Persistence ─────
@@ -1094,7 +1167,7 @@
       else if (t.status === 'disconnected') splitDot.classList.add('disconnected');
       const nameSpan = document.createElement('span');
       nameSpan.className = 'split-name';
-      nameSpan.textContent = t.name;
+      nameSpan.textContent = t.labelEl ? t.labelEl.textContent : t.name;
       const restartBtnSplit = document.createElement('button');
       restartBtnSplit.className = 'split-restart';
       restartBtnSplit.textContent = '↻';
@@ -1897,11 +1970,13 @@
       menuPopup.classList.remove('visible');
       localStorage.removeItem('rc-tab-order');
       localStorage.removeItem('rc-split-tabs');
-      // Rebuild tab order from server indices
+      localStorage.removeItem('rc-tab-names');
+      // Rebuild tab order from server indices, restore original names
       const ordered = [];
       tabScroll.innerHTML = '';
       tabs.forEach((t, i) => {
         if (t && !t.removed && !t.split) {
+          if (t.labelEl) t.labelEl.textContent = t.name;
           tabScroll.appendChild(t.tabEl);
           ordered.push(i);
         }
