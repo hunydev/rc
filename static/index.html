@@ -1512,6 +1512,7 @@
       updateTabStatus();
       updateHeaderForTab();
       sendWS({ type: 'resize', cols: tabs[idx].term.cols, rows: tabs[idx].term.rows, tab: idx });
+      try { localStorage.setItem('rc-active-tab', String(idx)); } catch (e) {}
     }
 
     function updateTabStatus() {
@@ -1936,6 +1937,19 @@
           switch (msg.type) {
             case 'tabs':
               initTabs(msg.tabs || []);
+              // Restore active tab: ?tab= query param takes priority, then localStorage
+              {
+                let preferredTab = null;
+                const urlTab = new URLSearchParams(location.search).get('tab');
+                if (urlTab !== null) {
+                  preferredTab = parseInt(urlTab, 10) - 1;
+                } else {
+                  try { preferredTab = parseInt(localStorage.getItem('rc-active-tab'), 10); } catch (e) {}
+                }
+                if (preferredTab != null && !isNaN(preferredTab) && tabs[preferredTab] && !tabs[preferredTab].removed && !tabs[preferredTab].split) {
+                  switchTab(preferredTab);
+                }
+              }
               break;
             case 'tab_added':
               ensureTab(msg.tab, msg.data, msg.remote, msg.meta || {});
