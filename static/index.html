@@ -398,6 +398,41 @@
     .update-status.error { color: #f38ba8; }
     .update-status.success { color: #a6e3a1; }
 
+    /* ───── Help modal ───── */
+    #help-modal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 400;
+      justify-content: center; align-items: center;
+    }
+    #help-modal.visible { display: flex; }
+    .help-box {
+      background: #181825; padding: 24px 28px; border-radius: 12px;
+      border: 1px solid #313244; width: 460px; max-width: 90vw;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .help-box h3 { color: #89b4fa; margin: 0 0 10px; font-size: 15px; }
+    .help-box h3:not(:first-child) { margin-top: 16px; }
+    .help-box p { color: #a6adc8; font-size: 13px; margin: 4px 0; line-height: 1.55; }
+    .help-box .help-sep { border-top: 1px solid #313244; margin: 14px 0; }
+    .help-box .help-row { display: flex; gap: 8px; margin: 5px 0; font-size: 13px; color: #a6adc8; align-items: baseline; }
+    .help-box .help-row .help-icon { flex-shrink: 0; width: 20px; text-align: center; }
+    .help-box kbd {
+      background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+      border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: monospace;
+    }
+    .help-box code {
+      background: #313244; color: #f9e2af; border-radius: 4px;
+      padding: 1px 5px; font-size: 12px; font-family: monospace;
+    }
+    .help-box a { color: #89b4fa; text-decoration: none; }
+    .help-box a:hover { text-decoration: underline; }
+    .help-box .help-close {
+      margin-top: 16px; width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #313244; background: #1e1e2e; color: #cdd6f4;
+      font-size: 13px; cursor: pointer; transition: background 0.15s;
+    }
+    .help-box .help-close:hover { background: #313244; }
+
     /* ───── Info modal ───── */
     #info-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -497,6 +532,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
           Check for Updates
         </button>
+        <button class="menu-item" id="menu-help" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Help &amp; Docs
+        </button>
         <button class="menu-item" id="menu-about" role="menuitem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           About &amp; Licenses
@@ -556,6 +595,49 @@
       <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
       <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
       <button class="info-close" id="info-close">Close</button>
+    </div>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="help-modal" role="dialog" aria-label="Help" aria-modal="true">
+    <div class="help-box">
+      <h3>📖 Help &amp; Docs</h3>
+      <p><strong>rc</strong> is a browser-based remote terminal. Each tab runs a command on the server. Here's how to get the most out of it.</p>
+
+      <div class="help-sep"></div>
+      <h3>Tab Management</h3>
+      <div class="help-row"><span class="help-icon">🟢</span> <span><strong>Running</strong> — process is active</span></div>
+      <div class="help-row"><span class="help-icon">🟡</span> <span><strong>Idle</strong> — no output for a while (pulsing)</span></div>
+      <div class="help-row"><span class="help-icon">🔴</span> <span><strong>Exited</strong> — process has ended; click <strong>↻ Restart</strong> at the bottom to relaunch</span></div>
+      <div class="help-row"><span class="help-icon">⚫</span> <span><strong>Disconnected</strong> — remote agent went offline</span></div>
+      <div class="help-row"><span class="help-icon">🟣</span> <span><strong>Purple ring</strong> — tab is from a remote agent</span></div>
+      <p>Switch tabs with <kbd>Alt+1</kbd> – <kbd>Alt+9</kbd>. Drag tabs to reorder.</p>
+
+      <div class="help-sep"></div>
+      <h3>Split Pane</h3>
+      <p>Hover over any tab to see the <strong>⧉</strong> split icon. Click it to send that tab to the right pane for side-by-side monitoring. Use the <strong>✕</strong> button on the split header to unsplit. On mobile, split pane appears as a slide-out drawer.</p>
+
+      <div class="help-sep"></div>
+      <h3>Tab Menu ☰</h3>
+      <p>The menu button at the right end of the tab bar provides:</p>
+      <div class="help-row"><span class="help-icon">✕</span> <span><strong>Close disconnected tabs</strong> — remove offline agent tabs</span></div>
+      <div class="help-row"><span class="help-icon">↺</span> <span><strong>Reset tab order</strong> — restore original order</span></div>
+      <div class="help-row"><span class="help-icon">🔄</span> <span><strong>Check for Updates</strong> — update rc from the UI</span></div>
+      <div class="help-row"><span class="help-icon">ℹ</span> <span><strong>About &amp; Licenses</strong> — version and credits</span></div>
+
+      <div class="help-sep"></div>
+      <h3>File Upload</h3>
+      <p>When the server is started with <code>--upload</code>, an upload icon appears in the header. Click it to upload a file to the server's working directory. Files are <strong>not overwritten</strong> — if a file already exists, rename it first.</p>
+      <p>If no upload icon is visible, the server was started without <code>--upload</code>.</p>
+
+      <div class="help-sep"></div>
+      <h3>Mobile &amp; Touch</h3>
+      <p>On touch devices, use the floating keyboard button (bottom-right) for arrow keys, Ctrl+C, Tab, Esc, and clipboard paste.</p>
+
+      <div class="help-sep"></div>
+      <p>For detailed documentation on CLI options, agent mode, deployment, security, and more:</p>
+      <p><a href="https://rc.huny.dev/#/docs" target="_blank" rel="noopener">📚 rc.huny.dev — Full Documentation</a></p>
+      <button class="help-close" id="help-close">Close</button>
     </div>
   </div>
 
@@ -694,6 +776,8 @@
     const menuCloseDc = document.getElementById('menu-close-dc');
     const menuResetOrder = document.getElementById('menu-reset-order');
     const menuAbout = document.getElementById('menu-about');
+    const menuHelp = document.getElementById('menu-help');
+    const helpModal = document.getElementById('help-modal');
     const menuLogout = document.getElementById('menu-logout');
     const menuUpdate = document.getElementById('menu-update');
     const updateModal = document.getElementById('update-modal');
@@ -1893,6 +1977,18 @@
     });
     infoModal.addEventListener('click', (e) => {
       if (e.target === infoModal) infoModal.classList.remove('visible');
+    });
+
+    // Help & Docs
+    menuHelp.addEventListener('click', () => {
+      menuPopup.classList.remove('visible');
+      helpModal.classList.add('visible');
+    });
+    document.getElementById('help-close').addEventListener('click', () => {
+      helpModal.classList.remove('visible');
+    });
+    helpModal.addEventListener('click', (e) => {
+      if (e.target === helpModal) helpModal.classList.remove('visible');
     });
 
     // Logout
