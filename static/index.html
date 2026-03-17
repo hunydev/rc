@@ -996,8 +996,9 @@
       // Wire up terminal I/O
       // Filter out terminal response sequences that xterm.js generates back to the host.
       // Created per-tab because the 'g' flag carries lastIndex state across calls.
-      // Covers: OSC responses (e.g. \e]11;rgb:...\a), CSI responses (DA, DSR, CPR)
-      const termResponseRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[a-zA-Z]/g;
+      // Covers: OSC responses (e.g. \e]11;rgb:...\a), private-mode CSI (DA: \e[?..c, \e[>..c),
+      // CPR (\e[row;colR), DSR (\e[0n). Does NOT filter user keys (arrows, home/end, etc.).
+      const termResponseRe = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[?>][0-9;]*[a-zA-Z]|\x1b\[[0-9]+;[0-9]+R|\x1b\[[0-9]*n/g;
       t.onData((data) => {
         if (!isConnected()) return;
         if (meta.readonly) return;
