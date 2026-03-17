@@ -259,7 +259,7 @@ Example: `RC_PORT=9000 RC_PASSWORD=secret ./service.sh install`
     - **Attach token** — generate a temporary one-time-use token for agent `--attach` (shown only when password is set; 5-minute expiry)
     - **Close disconnected tabs** — removes all disconnected agent tabs at once
     - **Reset all tabs** — clears saved tab order, custom names, and restores original layout
-    - **Check for Updates** — opens update modal to check and apply updates from the UI
+    - **Check for Updates** — opens update modal to check and apply updates from the UI (verifies binary before restarting; recovers if startup fails)
     - **Help & Docs** — opens guide with tab statuses, split pane, upload, shortcuts, and link to full docs
     - **About & Licenses** — opens modal with version, author, GitHub link, and open-source licenses
     - **Logout** — clears authentication token and reloads (shown only when logged in)
@@ -295,7 +295,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.0`). Update in-place with `rc --update` or via the web UI menu.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.1`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
 
 ## Platform Notes
 

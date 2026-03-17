@@ -283,7 +283,7 @@ function TabManagement() {
         <li><strong>Attach token</strong> — Generate a temporary one-time-use token for agent <code>--attach</code> (shown when password is set; 5-minute expiry)</li>
         <li><strong>Close disconnected tabs</strong> — Remove all disconnected agent tabs at once</li>
         <li><strong>Reset all tabs</strong> — Clear saved order, custom names, and restore the original layout</li>
-        <li><strong>Check for Updates</strong> — Check for and apply updates from the UI</li>
+        <li><strong>Check for Updates</strong> — Check for and apply updates from the UI. The new binary is verified before restarting; if the new process fails to start, the server recovers automatically.</li>
         <li><strong>Help &amp; Docs</strong> — Quick guide with tab statuses, split pane, upload, shortcuts</li>
         <li><strong>About &amp; Licenses</strong> — Version info, author, GitHub link, open-source licenses</li>
         <li><strong>Logout</strong> — Clear authentication token and reload (shown only when logged in)</li>
