@@ -327,12 +327,19 @@ func performRestart(server *http.Server, closeFn func()) {
 	}
 }
 
+// checkWritable verifies we can create/rename files in the directory containing path.
+// We check the directory (not the binary itself) because Linux returns ETXTBSY
+// when opening a running executable for writing. The actual update uses atomic
+// rename which only requires directory write permission.
 func checkWritable(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".rc-write-check-*")
 	if err != nil {
 		return err
 	}
-	f.Close()
+	name := tmp.Name()
+	tmp.Close()
+	os.Remove(name)
 	return nil
 }
 
