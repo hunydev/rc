@@ -470,6 +470,40 @@
     }
     .info-box .info-close:hover { background: #313244; }
 
+    #token-modal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 400;
+      justify-content: center; align-items: center;
+    }
+    #token-modal.visible { display: flex; }
+    .token-box {
+      background: #181825; padding: 24px 28px; border-radius: 12px;
+      border: 1px solid #313244; width: 420px; max-width: 90vw;
+    }
+    .token-box h3 { color: #89b4fa; margin: 0 0 14px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+    .token-box p { color: #6c7086; font-size: 12px; margin: 0; }
+    .token-box code { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; }
+    .token-display {
+      display: flex; align-items: center; gap: 8px;
+      background: #1e1e2e; border: 1px solid #313244; border-radius: 8px;
+      padding: 10px 12px; margin: 8px 0;
+    }
+    .token-display code { color: #a6e3a1; font-size: 13px; flex: 1; word-break: break-all; user-select: all; -webkit-user-select: all; }
+    .token-copy {
+      background: none; border: none; cursor: pointer; font-size: 16px;
+      padding: 2px 6px; border-radius: 4px; transition: background 0.15s;
+    }
+    .token-copy:hover { background: #313244; }
+    .token-example {
+      background: #1e1e2e; border: 1px solid #313244; border-radius: 8px;
+      padding: 8px 12px; margin: 8px 0; overflow-x: auto;
+    }
+    .token-example code { color: #cdd6f4; font-size: 11px; white-space: nowrap; }
+    .token-expiry {
+      color: #f9e2af; font-size: 12px; margin-top: 8px; text-align: center;
+    }
+    .token-error-msg { color: #f38ba8; font-size: 13px; margin-top: 8px; }
+
     #upload-modal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.6); z-index: 200;
@@ -529,6 +563,11 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
       </button>
       <div id="menu-popup" role="menu">
+        <button class="menu-item" id="menu-attach-token" style="display:none" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Attach token
+        </button>
+        <div class="menu-sep" id="menu-sep-token" style="display:none"></div>
         <button class="menu-item" id="menu-close-dc" role="menuitem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           Close disconnected tabs
@@ -586,6 +625,32 @@
       <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
       <button class="login-submit" id="login-btn">Login</button>
       <p id="login-error">Invalid password</p>
+    </div>
+  </div>
+
+  <!-- Attach Token Modal -->
+  <div id="token-modal" role="dialog" aria-label="Attach Token" aria-modal="true">
+    <div class="token-box">
+      <div id="token-generating">
+        <h3><span class="update-spinner"></span> Generating Token</h3>
+      </div>
+      <div id="token-result" style="display:none">
+        <h3>🔑 Attach Token</h3>
+        <p style="color:#a6adc8; font-size:12px; margin-bottom:12px;">Use this token as <code>--password</code> when attaching an agent:</p>
+        <div class="token-display">
+          <code id="token-value"></code>
+          <button class="token-copy" id="token-copy-btn" title="Copy">📋</button>
+        </div>
+        <div class="token-example">
+          <code>rc --attach <span style="color:#585b70">HUB_URL</span> --password <span id="token-example-val" style="color:#a6e3a1"></span></code>
+        </div>
+        <div class="token-expiry" id="token-expiry"></div>
+      </div>
+      <div id="token-error" style="display:none">
+        <h3>❌ Error</h3>
+        <div class="token-error-msg" id="token-error-msg"></div>
+      </div>
+      <button class="info-close" id="token-close">Close</button>
     </div>
   </div>
 
@@ -793,6 +858,9 @@
     const menuLogout = document.getElementById('menu-logout');
     const menuUpdate = document.getElementById('menu-update');
     const updateModal = document.getElementById('update-modal');
+    const menuAttachToken = document.getElementById('menu-attach-token');
+    const menuSepToken = document.getElementById('menu-sep-token');
+    const tokenModal = document.getElementById('token-modal');
 
     // ───── Constants ─────
     const IDLE_THRESHOLD_MS = 3000;
@@ -1980,6 +2048,9 @@
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       menuLogout.style.display = authRequired && authToken ? '' : 'none';
+      const showToken = authRequired && authToken;
+      menuAttachToken.style.display = showToken ? '' : 'none';
+      menuSepToken.style.display = showToken ? '' : 'none';
       menuPopup.classList.toggle('visible');
       if (menuPopup.classList.contains('visible')) {
         const first = menuPopup.querySelector('.menu-item:not([style*="display:none"])');
@@ -2134,6 +2205,71 @@
     });
     helpModal.addEventListener('click', (e) => {
       if (e.target === helpModal) helpModal.classList.remove('visible');
+    });
+
+    // Attach Token
+    let tokenCountdown = null;
+    menuAttachToken.addEventListener('click', async () => {
+      menuPopup.classList.remove('visible');
+      document.getElementById('token-generating').style.display = '';
+      document.getElementById('token-result').style.display = 'none';
+      document.getElementById('token-error').style.display = 'none';
+      if (tokenCountdown) { clearInterval(tokenCountdown); tokenCountdown = null; }
+      tokenModal.classList.add('visible');
+      try {
+        const res = await fetch(routePrefix + '/attach-token', {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to generate token');
+        const data = await res.json();
+        document.getElementById('token-value').textContent = data.token;
+        document.getElementById('token-example-val').textContent = data.token;
+        document.getElementById('token-generating').style.display = 'none';
+        document.getElementById('token-result').style.display = '';
+        // Countdown timer
+        let remaining = data.expires_in;
+        const expiryEl = document.getElementById('token-expiry');
+        function updateExpiry() {
+          if (remaining <= 0) {
+            expiryEl.textContent = 'Token expired';
+            expiryEl.style.color = '#f38ba8';
+            clearInterval(tokenCountdown);
+            tokenCountdown = null;
+            return;
+          }
+          const m = Math.floor(remaining / 60);
+          const s = remaining % 60;
+          expiryEl.textContent = 'Expires in ' + m + ':' + String(s).padStart(2, '0');
+          expiryEl.style.color = remaining <= 30 ? '#f38ba8' : '#f9e2af';
+          remaining--;
+        }
+        updateExpiry();
+        tokenCountdown = setInterval(updateExpiry, 1000);
+      } catch (e) {
+        document.getElementById('token-generating').style.display = 'none';
+        document.getElementById('token-error').style.display = '';
+        document.getElementById('token-error-msg').textContent = e.message || 'Failed to generate token';
+      }
+    });
+    document.getElementById('token-close').addEventListener('click', () => {
+      tokenModal.classList.remove('visible');
+      if (tokenCountdown) { clearInterval(tokenCountdown); tokenCountdown = null; }
+    });
+    tokenModal.addEventListener('click', (e) => {
+      if (e.target === tokenModal) {
+        tokenModal.classList.remove('visible');
+        if (tokenCountdown) { clearInterval(tokenCountdown); tokenCountdown = null; }
+      }
+    });
+    document.getElementById('token-copy-btn').addEventListener('click', () => {
+      const val = document.getElementById('token-value').textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(val).then(() => {
+          document.getElementById('token-copy-btn').textContent = '✅';
+          setTimeout(() => { document.getElementById('token-copy-btn').textContent = '📋'; }, 1500);
+        });
+      }
     });
 
     // Logout

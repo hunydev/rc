@@ -319,6 +319,26 @@ func run(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc(rp+"/update/check", requireAuth(cfgPassword, handleUpdateCheck))
 	mux.HandleFunc(rp+"/update/apply", requireAuth(cfgPassword, handleUpdateApply))
 
+	// Attach token generation (only when password is set)
+	mux.HandleFunc(rp+"/attach-token", requireAuth(cfgPassword, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if cfgPassword == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"no password configured"}`))
+			return
+		}
+		token := generateAttachToken()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"token":      token,
+			"expires_in": int(attachTokenExpiry.Seconds()),
+		})
+	}))
+
 	addr := fmt.Sprintf("%s:%d", cfgBind, cfgPort)
 	server := &http.Server{
 		Addr:        addr,

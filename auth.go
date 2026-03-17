@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -41,11 +42,16 @@ func requireAuth(password string, next http.HandlerFunc) http.HandlerFunc {
 
 // checkAuth validates the request token against the password hash.
 // Supports Authorization: Bearer <hash> header and Sec-WebSocket-Protocol: auth-<hash>.
+// Also accepts valid attach tokens (short-lived, one-time-use).
 func checkAuth(r *http.Request, passwordHash string) bool {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
+			return true
+		}
+		// Check if it's an attach token
+		if checkAttachToken(token) {
 			return true
 		}
 	}
@@ -57,9 +63,69 @@ func checkAuth(r *http.Request, passwordHash string) bool {
 			if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
 				return true
 			}
+			if checkAttachToken(token) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// ───── Attach tokens (short-lived tokens for agent --attach) ─────
+
+const attachTokenExpiry = 5 * time.Minute
+
+type attachTokenStore struct {
+	mu     sync.Mutex
+	tokens map[string]time.Time // token hash → expiry
+}
+
+var attachTokens = &attachTokenStore{tokens: make(map[string]time.Time)}
+
+// generateAttachToken creates a random short-lived token that can be used
+// in place of the password for agent --attach. Returns the raw token string.
+func generateAttachToken() string {
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		// fallback to timestamp-based token
+		b = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	}
+	token := hex.EncodeToString(b)
+	hashed := hashPassword(token)
+	attachTokens.mu.Lock()
+	attachTokens.tokens[hashed] = time.Now().Add(attachTokenExpiry)
+	attachTokens.mu.Unlock()
+	// Prune expired tokens in background
+	go attachTokens.prune()
+	return token
+}
+
+// checkAttachToken validates a Bearer token against active attach tokens.
+func checkAttachToken(tokenHash string) bool {
+	attachTokens.mu.Lock()
+	defer attachTokens.mu.Unlock()
+	expiry, ok := attachTokens.tokens[tokenHash]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expiry) {
+		delete(attachTokens.tokens, tokenHash)
+		return false
+	}
+	// One-time use: delete after successful validation
+	delete(attachTokens.tokens, tokenHash)
+	return true
+}
+
+func (s *attachTokenStore) prune() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for k, exp := range s.tokens {
+		if now.After(exp) {
+			delete(s.tokens, k)
+		}
+	}
 }
 
 // ───── Login rate limiter (progressive IP-based lockout) ─────
