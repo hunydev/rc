@@ -797,6 +797,8 @@
     let ws = null;
     let reconnectTimer = null;
     let reconnectDelay = 1000;
+    let hadConnection = false;   // true after first successful ws.onopen
+    let disconnectGrace = false; // true = next disconnect gets one silent retry
     let ctrlActive = false;
     let hubInfo = {}; // {hostname, workspace} from /info
     // Derive route prefix from current URL path (strip trailing /index.html or /)
@@ -1183,8 +1185,11 @@
         t.splitEntry = null;
       }
 
-      // Show in tab bar again
+      // Show in tab bar again (re-append if detached, e.g. after reset tab order)
       t.tabEl.style.display = '';
+      if (!tabScroll.contains(t.tabEl)) {
+        tabScroll.appendChild(t.tabEl);
+      }
 
       // Hide split pane if empty
       if (splitTabs.length === 0) {
@@ -1486,6 +1491,7 @@
     document.getElementById('dc-reconnect-btn').addEventListener('click', () => {
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       reconnectDelay = 1000;
+      disconnectGrace = false; // user already saw the modal
       connectWS();
     });
 
@@ -1693,7 +1699,9 @@
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
-        reconnectDelay = 1000; // reset backoff on successful connect
+        reconnectDelay = 1000;
+        hadConnection = true;
+        disconnectGrace = true; // grant one silent retry for next disconnect
         setTimeout(() => refitAllTerminals(), REFIT_DELAY_MS);
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
@@ -1783,6 +1791,18 @@
 
       ws.onclose = () => {
         setStatus('disconnected', 'status-disconnected');
+        // If we had a connection and grace is available, retry once silently
+        if (disconnectGrace) {
+          disconnectGrace = false;
+          if (!reconnectTimer) {
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              connectWS();
+            }, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+          }
+          return;
+        }
         dcOverlay.classList.add('visible');
         // Auto-reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max)
         if (!reconnectTimer) {
@@ -1999,7 +2019,10 @@
       location.reload();
     });
 
-    window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
+    window.addEventListener('beforeunload', (e) => {
+      if (ws) ws.close();
+      e.preventDefault();
+    });
 
     initApp();
   </script>
