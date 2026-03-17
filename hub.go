@@ -43,6 +43,26 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// extractIP returns the client IP from the request, respecting proxy headers when trustedProxy is enabled.
+func extractIP(r *http.Request) string {
+	if trustedProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// X-Forwarded-For may contain multiple IPs; take the first (original client)
+			if ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0]); ip != "" {
+				return ip
+			}
+		}
+		if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host == "" {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // TabEntry represents a terminal session, either local or remote (agent-backed).
 type TabEntry struct {
 	Name      string
@@ -663,10 +683,7 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create tab entries for agent's commands
-	agentAddr, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if agentAddr == "" {
-		agentAddr = r.RemoteAddr
-	}
+	agentAddr := extractIP(r)
 	agentUser := regMsg.Data // agent sends "user" in Data field
 	agentHostname := ""
 	agentWorkspace := ""

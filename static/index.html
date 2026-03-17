@@ -110,6 +110,11 @@
     }
     .tab-item.dragging { opacity: 0.4; }
     .tab-item.drag-over { border-left: 2px solid #89b4fa; }
+    #tab-drop-end {
+      width: 4px; min-height: 24px; flex-shrink: 0; align-self: stretch;
+      border-left: 2px solid transparent; transition: border-color 0.1s;
+    }
+    #tab-drop-end.drag-over { border-left: 2px solid #89b4fa; }
 
     #main-area { display: flex; flex: 1; min-height: 0; }
     #terminal-container { flex: 1; padding: 4px; position: relative; min-width: 0; }
@@ -519,7 +524,7 @@
       <span id="status" class="status status-connecting">connecting...</span>
     </div>
     <div id="tab-bar">
-      <div id="tab-scroll"></div>
+      <div id="tab-scroll"><div id="tab-drop-end"></div></div>
       <button id="tab-menu-btn" title="Menu">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
       </button>
@@ -530,7 +535,7 @@
         </button>
         <button class="menu-item" id="menu-reset-order" role="menuitem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-          Reset tab order
+          Reset all tabs
         </button>
         <div class="menu-sep"></div>
         <button class="menu-item" id="menu-update" role="menuitem">
@@ -626,7 +631,7 @@
       <h3>Tab Menu ☰</h3>
       <p>The menu button at the right end of the tab bar provides:</p>
       <div class="help-row"><span class="help-icon">✕</span> <span><strong>Close disconnected tabs</strong> — remove offline agent tabs</span></div>
-      <div class="help-row"><span class="help-icon">↺</span> <span><strong>Reset tab order</strong> — restore original order</span></div>
+      <div class="help-row"><span class="help-icon">↺</span> <span><strong>Reset all tabs</strong> — restore original order and names</span></div>
       <div class="help-row"><span class="help-icon">🔄</span> <span><strong>Check for Updates</strong> — update rc from the UI</span></div>
       <div class="help-row"><span class="help-icon">ℹ</span> <span><strong>About &amp; Licenses</strong> — version and credits</span></div>
 
@@ -741,6 +746,9 @@
     <div class="key-row">
       <button class="key-btn wide" id="paste-btn" style="flex:1">&#128203; Paste</button>
     </div>
+    <div class="key-row">
+      <button class="key-btn wide" id="select-toggle" style="flex:1">&#9998; Select text</button>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -751,6 +759,7 @@
     const headerInfo = document.getElementById('header-info');
     const tabBar = document.getElementById('tab-bar');
     const tabScroll = document.getElementById('tab-scroll');
+    const tabDropEnd = document.getElementById('tab-drop-end');
     const termContainer = document.getElementById('terminal-container');
     const splitPane = document.getElementById('split-pane');
     const splitToggle = document.getElementById('split-toggle');
@@ -761,6 +770,7 @@
     const helperPanel = document.getElementById('helper-panel');
     const ctrlToggle = document.getElementById('ctrl-toggle');
     const pasteBtn = document.getElementById('paste-btn');
+    const selectToggle = document.getElementById('select-toggle');
     const uploadBtn = document.createElement('button');
     uploadBtn.id = 'upload-btn';
     uploadBtn.title = 'Upload file';
@@ -819,6 +829,32 @@
     }
     let splitTabs = []; // indices of tabs in split pane (display order)
     let dragSrcIdx = null; // currently dragged tab index
+
+    // Drop-end sentinel: allows dropping a tab at the rightmost position
+    tabDropEnd.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragSrcIdx !== null) tabDropEnd.classList.add('drag-over');
+    });
+    tabDropEnd.addEventListener('dragleave', () => tabDropEnd.classList.remove('drag-over'));
+    tabDropEnd.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tabDropEnd.classList.remove('drag-over');
+      if (dragSrcIdx === null) return;
+      const srcTab = tabs[dragSrcIdx];
+      if (!srcTab) return;
+      // Insert before the sentinel = append to end
+      tabScroll.insertBefore(srcTab.tabEl, tabDropEnd);
+      saveTabOrder();
+    });
+
+    // Horizontal scroll on mouse wheel in tab bar
+    tabScroll.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        tabScroll.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
 
     // Clear split focus when clicking main terminal
     termContainer.addEventListener('mousedown', () => {
@@ -893,6 +929,7 @@
         tabEl.classList.remove('dragging');
         dragSrcIdx = null;
         tabScroll.querySelectorAll('.tab-item').forEach(el => el.classList.remove('drag-over'));
+        tabDropEnd.classList.remove('drag-over');
         saveTabOrder();
       });
       tabEl.addEventListener('dragover', (e) => {
@@ -958,7 +995,7 @@
         tabEl.appendChild(splitBtn);
       }
       tabEl.addEventListener('click', () => switchTab(idx));
-      tabScroll.appendChild(tabEl);
+      tabScroll.insertBefore(tabEl, tabDropEnd);
 
       // Wire up terminal I/O
       // Filter out terminal response sequences that xterm.js generates back to the host.
@@ -1034,7 +1071,7 @@
         tabScroll.querySelectorAll('.tab-item').forEach(el => existing.add(parseInt(el.dataset.tabIdx)));
         saved.forEach(idx => {
           if (existing.has(idx) && tabs[idx]) {
-            tabScroll.appendChild(tabs[idx].tabEl);
+            tabScroll.insertBefore(tabs[idx].tabEl, tabDropEnd);
           }
         });
       } catch (e) {}
@@ -1261,7 +1298,7 @@
       // Show in tab bar again (re-append if detached, e.g. after reset tab order)
       t.tabEl.style.display = '';
       if (!tabScroll.contains(t.tabEl)) {
-        tabScroll.appendChild(t.tabEl);
+        tabScroll.insertBefore(t.tabEl, tabDropEnd);
       }
 
       // Hide split pane if empty
@@ -1665,6 +1702,25 @@
     }
     onTap(pasteBtn, doPaste);
 
+    // Text selection mode toggle (mobile)
+    let selectMode = false;
+    function setSelectMode(on) {
+      selectMode = on;
+      document.querySelectorAll('.xterm').forEach(el => {
+        el.style.touchAction = on ? 'auto' : '';
+        el.style.userSelect = on ? 'text' : '';
+        el.style.webkitUserSelect = on ? 'text' : '';
+      });
+      if (on) {
+        selectToggle.classList.add('active');
+        selectToggle.textContent = '\u2713 Select text';
+      } else {
+        selectToggle.classList.remove('active');
+        selectToggle.textContent = '\u270E Select text';
+      }
+    }
+    onTap(selectToggle, () => setSelectMode(!selectMode));
+
     // ───── Upload ─────
     let uploadTargetTab = null;
     function resetUploadModal() {
@@ -1974,10 +2030,11 @@
       // Rebuild tab order from server indices, restore original names
       const ordered = [];
       tabScroll.innerHTML = '';
+      tabScroll.appendChild(tabDropEnd);
       tabs.forEach((t, i) => {
         if (t && !t.removed && !t.split) {
           if (t.labelEl) t.labelEl.textContent = t.name;
-          tabScroll.appendChild(t.tabEl);
+          tabScroll.insertBefore(t.tabEl, tabDropEnd);
           ordered.push(i);
         }
       });
