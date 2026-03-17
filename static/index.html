@@ -599,10 +599,11 @@
       <div class="info-row"><a href="https://github.com/hunydev/rc" target="_blank" rel="noopener">GitHub Repository</a></div>
       <div class="info-sep"></div>
       <h3>Open Source Licenses</h3>
-      <div class="dep-item"><a href="https://github.com/xtermjs/xterm.js" target="_blank" rel="noopener">xterm.js</a> — MIT</div>
+      <div class="dep-item"><a href="https://github.com/xtermjs/xterm.js" target="_blank" rel="noopener">xterm.js</a> — MIT (includes addon-fit, addon-web-links)</div>
       <div class="dep-item"><a href="https://github.com/spf13/cobra" target="_blank" rel="noopener">spf13/cobra</a> — Apache-2.0</div>
       <div class="dep-item"><a href="https://github.com/creack/pty" target="_blank" rel="noopener">creack/pty</a> — MIT</div>
       <div class="dep-item"><a href="https://github.com/gorilla/websocket" target="_blank" rel="noopener">gorilla/websocket</a> — BSD-2-Clause</div>
+      <div class="dep-item"><a href="https://github.com/spf13/pflag" target="_blank" rel="noopener">spf13/pflag</a> — BSD-3-Clause</div>
       <div class="dep-item" style="margin-top:6px; color:#585b70;">Theme: Catppuccin Mocha (MIT)</div>
       <button class="info-close" id="info-close">Close</button>
     </div>
@@ -621,7 +622,7 @@
       <div class="help-row"><span class="help-icon">🔴</span> <span><strong>Exited</strong> — process has ended; click <strong>↻ Restart</strong> at the bottom to relaunch</span></div>
       <div class="help-row"><span class="help-icon">⚫</span> <span><strong>Disconnected</strong> — remote agent went offline</span></div>
       <div class="help-row"><span class="help-icon">🟣</span> <span><strong>Purple ring</strong> — tab is from a remote agent</span></div>
-      <p>Switch tabs with <kbd>Alt+1</kbd> – <kbd>Alt+9</kbd>. Drag tabs to reorder.</p>
+      <p>Switch tabs with <kbd>Alt+1</kbd> – <kbd>Alt+9</kbd> or <kbd>Alt+←/→</kbd>. Drag tabs to reorder.</p>
 
       <div class="help-sep"></div>
       <h3>Split Pane</h3>
@@ -1943,7 +1944,7 @@
       if (e.key === 'Enter') doLogin();
     });
 
-    // ───── Alt+1~9: Switch Tabs ─────
+    // ───── Alt+1~9 / Alt+Arrow: Switch Tabs ─────
     document.addEventListener('keydown', (e) => {
       if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
         const n = parseInt(e.key);
@@ -1957,6 +1958,20 @@
             if (tabs[i] && !tabs[i].removed && !tabs[i].split) visible.push(i);
           });
           if (n - 1 < visible.length) switchTab(visible[n - 1]);
+        }
+        // Alt+Left / Alt+Right: switch to adjacent tab
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          const visible = [];
+          tabScroll.querySelectorAll('.tab-item').forEach(el => {
+            const i = parseInt(el.dataset.tabIdx);
+            if (tabs[i] && !tabs[i].removed && !tabs[i].split) visible.push(i);
+          });
+          const cur = visible.indexOf(activeTab);
+          if (cur === -1) return;
+          const next = e.key === 'ArrowLeft' ? cur - 1 : cur + 1;
+          if (next >= 0 && next < visible.length) switchTab(visible[next]);
         }
       }
     }, true);
