@@ -2057,8 +2057,31 @@
           }
           return;
         }
+        // Check if session expired (auth failure) vs genuine disconnect
+        if (authRequired) {
+          fetch(routePrefix + '/info', { headers: authHeaders() })
+            .then(res => {
+              if (res.status === 401) {
+                // Session expired — show login screen
+                authToken = '';
+                sessionStorage.removeItem('rc-token');
+                if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+                dcOverlay.classList.remove('visible');
+                document.getElementById('login-overlay').classList.add('visible');
+                document.getElementById('login-password').value = '';
+                document.getElementById('login-password').focus();
+                return;
+              }
+              showDisconnectAndRetry();
+            })
+            .catch(() => showDisconnectAndRetry());
+        } else {
+          showDisconnectAndRetry();
+        }
+      };
+
+      function showDisconnectAndRetry() {
         dcOverlay.classList.add('visible');
-        // Auto-reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max)
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
@@ -2066,7 +2089,7 @@
           }, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
         }
-      };
+      }
 
       ws.onerror = () => ws.close();
     }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -30,7 +31,13 @@ func requireAuth(password string, next http.HandlerFunc) http.HandlerFunc {
 	}
 	hashed := hashPassword(password)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if checkAuth(r, hashed) {
+		usedAttachToken, ok := checkAuthEx(r, hashed)
+		if ok {
+			if usedAttachToken {
+				// Store the real bearer token in context so handlers can send it to the agent
+				ctx := context.WithValue(r.Context(), ctxKeyBearer, hashed)
+				r = r.WithContext(ctx)
+			}
 			next(w, r)
 			return
 		}
@@ -40,19 +47,20 @@ func requireAuth(password string, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// checkAuth validates the request token against the password hash.
-// Supports Authorization: Bearer <hash> header and Sec-WebSocket-Protocol: auth-<hash>.
-// Also accepts valid attach tokens (short-lived, one-time-use).
-func checkAuth(r *http.Request, passwordHash string) bool {
+type contextKey string
+
+const ctxKeyBearer contextKey = "bearer"
+
+// checkAuthEx validates the request and returns (usedAttachToken, authenticated).
+func checkAuthEx(r *http.Request, passwordHash string) (attachToken bool, ok bool) {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
-			return true
+			return false, true
 		}
-		// Check if it's an attach token
 		if checkAttachToken(token) {
-			return true
+			return true, true
 		}
 	}
 	// WebSocket subprotocol auth (browser cannot set Authorization header on WS)
@@ -61,14 +69,14 @@ func checkAuth(r *http.Request, passwordHash string) bool {
 		if strings.HasPrefix(proto, "auth-") {
 			token := strings.TrimPrefix(proto, "auth-")
 			if subtle.ConstantTimeCompare([]byte(token), []byte(passwordHash)) == 1 {
-				return true
+				return false, true
 			}
 			if checkAttachToken(token) {
-				return true
+				return true, true
 			}
 		}
 	}
-	return false
+	return false, false
 }
 
 // ───── Attach tokens (short-lived tokens for agent --attach) ─────

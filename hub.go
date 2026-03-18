@@ -731,6 +731,14 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Agent attached from %s: %d tabs (indices %d-%d)", r.RemoteAddr, len(regMsg.Tabs), baseTab, baseTab+len(regMsg.Tabs)-1)
 
+	// If the agent authenticated via attach token, send the real bearer
+	// token so it can reconnect without needing a new attach token.
+	if bearer, ok := r.Context().Value(ctxKeyBearer).(string); ok && bearer != "" {
+		bearerMsg := mustMarshal(WSMessage{Type: "bearer", Data: bearer})
+		safeSend(agentConn.send, bearerMsg)
+		log.Printf("Agent %s: upgraded from attach token to bearer", r.RemoteAddr)
+	}
+
 	// Notify all browser clients of new tabs
 	for i, ti := range regMsg.Tabs {
 		tabIdx := baseTab + i

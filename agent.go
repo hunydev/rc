@@ -20,14 +20,15 @@ import (
 )
 
 type Agent struct {
-	target    string
-	sessions  []*agentSession
-	password  string
-	noRestart bool
-	readonly  bool
-	upload    bool
-	mu        sync.RWMutex
-	writeCh   chan []byte
+	target      string
+	sessions    []*agentSession
+	password    string
+	bearerToken string // persistent bearer from hub (upgraded from attach token)
+	noRestart   bool
+	readonly    bool
+	upload      bool
+	mu          sync.RWMutex
+	writeCh     chan []byte
 }
 
 type agentSession struct {
@@ -167,7 +168,15 @@ func (a *Agent) drainOutput(idx int, s *agentSession) {
 func (a *Agent) connect() error {
 	header := http.Header{}
 	if a.password != "" {
-		header.Set("Authorization", "Bearer "+hashPassword(a.password))
+		// Use persistent bearer token if available (upgraded from attach token)
+		a.mu.RLock()
+		bearer := a.bearerToken
+		a.mu.RUnlock()
+		if bearer != "" {
+			header.Set("Authorization", "Bearer "+bearer)
+		} else {
+			header.Set("Authorization", "Bearer "+hashPassword(a.password))
+		}
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(a.target, header)
 	if err != nil {
@@ -272,6 +281,15 @@ func (a *Agent) connect() error {
 		var msg WSMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			log.Printf("Hub message parse error: %v", err)
+			continue
+		}
+
+		// Handle bearer token upgrade (for attach token → persistent auth)
+		if msg.Type == "bearer" && msg.Data != "" {
+			a.mu.Lock()
+			a.bearerToken = msg.Data
+			a.mu.Unlock()
+			log.Printf("Received bearer token from hub (token auth upgraded)")
 			continue
 		}
 
