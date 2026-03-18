@@ -298,7 +298,7 @@ Pre-built binaries are available on the [Releases](https://github.com/hunydev/rc
 - macOS (amd64, arm64)
 - Windows (amd64, arm64)
 
-Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.3`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
+Release binaries include the version tag (e.g. `rc -v` → `rc version v0.7.4`). Update in-place with `rc --update` or via the web UI menu. The update process verifies the new binary before restarting, and recovers automatically if the new process fails to start.
 
 ## Platform Notes
 
