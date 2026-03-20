@@ -968,6 +968,23 @@
       }
     }, { passive: false });
 
+    // Returns the focused split tab index, or -1 if no split tab is focused
+    function getFocusedSplitTab() {
+      const focused = splitPane.querySelector('.split-entry.focused');
+      if (!focused) return -1;
+      for (let i = 0; i < splitTabs.length; i++) {
+        const t = tabs[splitTabs[i]];
+        if (t && t.splitEntry === focused) return splitTabs[i];
+      }
+      return -1;
+    }
+
+    // Returns the tab index that should receive input (split focus or main)
+    function getInputTargetTab() {
+      const splitIdx = getFocusedSplitTab();
+      return splitIdx >= 0 ? splitIdx : activeTab;
+    }
+
     // Clear split focus when clicking main terminal
     termContainer.addEventListener('mousedown', () => {
       splitPane.querySelectorAll('.split-entry').forEach(e => e.classList.remove('focused'));
@@ -989,6 +1006,37 @@
       allowProposedApi: true,
       scrollback: SCROLLBACK_LINES,
     };
+
+    function copyToClipboard(text) {
+      if (!text || !navigator.clipboard) return;
+      navigator.clipboard.writeText(text).then(() => {
+        const toast = document.getElementById('copy-toast');
+        toast.classList.add('visible');
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => toast.classList.remove('visible'), 1200);
+      }).catch(() => {});
+    }
+
+    // Fallback: browser-level selection for CLIs with mouse reporting enabled
+    // (Shift+select bypasses terminal mouse capture but xterm may not fire onSelectionChange)
+    let selCopyDebounce = null;
+    document.addEventListener('selectionchange', () => {
+      clearTimeout(selCopyDebounce);
+      selCopyDebounce = setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) return;
+        const text = sel.toString();
+        if (!text) return;
+        // Only auto-copy if selection is inside a terminal area
+        const anchor = sel.anchorNode;
+        if (!anchor) return;
+        const el = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
+        if (!el) return;
+        if (el.closest('.term-wrapper') || el.closest('.split-terminal')) {
+          copyToClipboard(text);
+        }
+      }, 300);
+    });
 
     function ensureTab(idx, name, remote, meta) {
       if (tabs[idx]) return; // Already exists
@@ -1015,14 +1063,7 @@
       // Copy on selection
       t.onSelectionChange(() => {
         const sel = t.getSelection();
-        if (sel && navigator.clipboard) {
-          navigator.clipboard.writeText(sel).then(() => {
-            const toast = document.getElementById('copy-toast');
-            toast.classList.add('visible');
-            clearTimeout(toast._timer);
-            toast._timer = setTimeout(() => toast.classList.remove('visible'), 1200);
-          }).catch(() => {});
-        }
+        if (sel) copyToClipboard(sel);
       });
 
       // Tab bar item
@@ -1779,10 +1820,11 @@
 
     function sendKey(keyId) {
       if (!isConnected()) return;
-      const t = getActiveTab();
+      const targetIdx = getInputTargetTab();
+      const t = tabs[targetIdx];
       if (!t || (t.meta && t.meta.readonly)) return;
       const seq = keyMap[keyId];
-      if (seq) sendWS({ type: 'input', data: seq, tab: activeTab });
+      if (seq) sendWS({ type: 'input', data: seq, tab: targetIdx });
     }
 
     helperPanel.querySelectorAll('button.key-btn[data-key]').forEach(btn => {
@@ -1814,10 +1856,11 @@
     function doPaste() {
       if (!isConnected()) return;
       if (!navigator.clipboard || !navigator.clipboard.readText) return;
-      const t = getActiveTab();
+      const targetIdx = getInputTargetTab();
+      const t = tabs[targetIdx];
       if (!t || (t.meta && t.meta.readonly)) return;
       navigator.clipboard.readText().then(text => {
-        if (text) sendWS({ type: 'input', data: text, tab: activeTab });
+        if (text) sendWS({ type: 'input', data: text, tab: targetIdx });
       }).catch(() => {});
     }
     onTap(pasteBtn, doPaste);
