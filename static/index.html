@@ -1624,6 +1624,17 @@
       }
     }
 
+    // Before replaying server snapshots after a reconnect, clear local xterm state.
+    // Without this, snapshot data can be appended on top of stale alternate-screen
+    // content (TUI apps), causing cursor/input position desynchronization.
+    function resetTerminalsForSnapshotReplay() {
+      tabs.forEach((t) => {
+        if (!t || t.removed || !t.term) return;
+        t.term.clear();
+        t.term.reset();
+      });
+    }
+
     // ───── Auth & Header Info ─────
     let authToken = sessionStorage.getItem('rc-token') || '';
     let authRequired = false;
@@ -2013,6 +2024,9 @@
 
       ws.onopen = () => {
         setStatus('connected', 'status-connected');
+        if (hadConnection) {
+          resetTerminalsForSnapshotReplay();
+        }
         reconnectDelay = 1000;
         hadConnection = true;
         disconnectGrace = true; // grant one silent retry for next disconnect
