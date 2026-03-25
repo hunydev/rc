@@ -626,7 +626,7 @@
       <div id="split-pane"></div>
     </div>
   </div>
-  <button id="split-toggle" aria-label="Toggle split pane">
+  <button id="split-toggle" aria-label="Toggle split pane" aria-expanded="false" aria-controls="split-pane">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2"/>
       <rect class="split-icon-pane split-icon-main" x="5" y="5" width="7" height="14" rx="1.2"/>
@@ -991,7 +991,11 @@
     // Returns the tab index that should receive input (split focus or main)
     function getInputTargetTab() {
       const splitIdx = getFocusedSplitTab();
-      if (splitIdx >= 0) return splitIdx;
+      if (splitIdx >= 0) {
+        // On mobile, only honour split focus when the drawer is actually visible
+        const isMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+        if (!isMobile || splitPane.classList.contains('slide-in')) return splitIdx;
+      }
       if (window.innerWidth <= MOBILE_BREAKPOINT_PX && splitPane.classList.contains('slide-in') && splitTabs.length > 0) {
         return splitTabs[0];
       }
@@ -1344,6 +1348,7 @@
       const splitOpenOnMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX && splitPane.classList.contains('slide-in');
       splitToggle.classList.toggle('split-active', splitOpenOnMobile);
       splitToggle.classList.toggle('main-active', !splitOpenOnMobile);
+      splitToggle.setAttribute('aria-expanded', splitOpenOnMobile ? 'true' : 'false');
     }
 
     splitToggle.addEventListener('click', () => {
