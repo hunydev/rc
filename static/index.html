@@ -180,6 +180,9 @@
       transition: background 0.15s, transform 0.15s;
     }
     #split-toggle:active { transform: scale(0.9); background: #45475a; }
+    #split-toggle .split-icon-pane { fill: transparent; transition: fill 0.15s, stroke 0.15s; }
+    #split-toggle.main-active .split-icon-main { fill: rgba(137,180,250,0.28); stroke: #89b4fa; }
+    #split-toggle.split-active .split-icon-split { fill: rgba(137,180,250,0.28); stroke: #89b4fa; }
 
     @media (max-width: 768px) {
       #split-pane.visible {
@@ -623,7 +626,13 @@
       <div id="split-pane"></div>
     </div>
   </div>
-  <button id="split-toggle" aria-label="Toggle split pane"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg></button>
+  <button id="split-toggle" aria-label="Toggle split pane" aria-expanded="false" aria-controls="split-pane">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+      <rect class="split-icon-pane split-icon-main" x="5" y="5" width="7" height="14" rx="1.2"/>
+      <rect class="split-icon-pane split-icon-split" x="12" y="5" width="7" height="14" rx="1.2"/>
+    </svg>
+  </button>
 
   <!-- Restart button (inline, bottom center) -->
   <div id="restart-bar">
@@ -982,7 +991,15 @@
     // Returns the tab index that should receive input (split focus or main)
     function getInputTargetTab() {
       const splitIdx = getFocusedSplitTab();
-      return splitIdx >= 0 ? splitIdx : activeTab;
+      if (splitIdx >= 0) {
+        // On mobile, only honour split focus when the drawer is actually visible
+        const isMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+        if (!isMobile || splitPane.classList.contains('slide-in')) return splitIdx;
+      }
+      if (window.innerWidth <= MOBILE_BREAKPOINT_PX && splitPane.classList.contains('slide-in') && splitTabs.length > 0) {
+        return splitTabs[0];
+      }
+      return activeTab;
     }
 
     // Clear split focus when clicking main terminal
@@ -1324,10 +1341,22 @@
         splitToggle.classList.remove('visible');
         splitPane.classList.remove('slide-in');
       }
+      updateSplitToggleVisualState();
+    }
+
+    function updateSplitToggleVisualState() {
+      const splitOpenOnMobile = window.innerWidth <= MOBILE_BREAKPOINT_PX && splitPane.classList.contains('slide-in');
+      splitToggle.classList.toggle('split-active', splitOpenOnMobile);
+      splitToggle.classList.toggle('main-active', !splitOpenOnMobile);
+      splitToggle.setAttribute('aria-expanded', splitOpenOnMobile ? 'true' : 'false');
     }
 
     splitToggle.addEventListener('click', () => {
       splitPane.classList.toggle('slide-in');
+      if (splitPane.classList.contains('slide-in') && getFocusedSplitTab() < 0 && splitTabs.length > 0) {
+        setSplitFocus(splitTabs[0]);
+      }
+      updateSplitToggleVisualState();
       // Refit after slide animation
       setTimeout(() => refitAllTerminals(), 300);
     });
@@ -1756,6 +1785,7 @@
       if (window.innerWidth > MOBILE_BREAKPOINT_PX && splitPane.classList.contains('slide-in')) {
         splitPane.classList.remove('slide-in');
       }
+      updateSplitToggleVisualState();
     });
 
     // ───── Reconnect Button ─────
