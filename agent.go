@@ -65,7 +65,9 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 
 	// Generate stable agent ID for session reconnection
 	idBytes := make([]byte, 16)
-	rand.Read(idBytes)
+	if _, err := rand.Read(idBytes); err != nil {
+		log.Fatalf("Failed to generate agent ID: %v", err)
+	}
 	agentID := fmt.Sprintf("%x", idBytes)
 
 	agent := &Agent{

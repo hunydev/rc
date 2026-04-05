@@ -2109,13 +2109,15 @@
               if (t) {
                 if (t.split) unsplitTab(msg.tab);
                 t.removed = true;
-                t.tabEl.style.display = 'none';
-                t.wrapper.style.display = 'none';
+                if (t.tabEl) t.tabEl.remove();
+                if (t.wrapper) t.wrapper.remove();
                 if (t.term) t.term.dispose();
+                if (t.fitAddon) t.fitAddon = null;
                 if (msg.tab === activeTab) {
                   const nextIdx = tabs.findIndex((tt, i) => tt && !tt.removed && !tt.split);
                   if (nextIdx >= 0) switchTab(nextIdx);
                 }
+                tabs[msg.tab] = null;
               }
               break;
             }
@@ -2170,10 +2172,12 @@
       function showDisconnectAndRetry() {
         dcOverlay.classList.add('visible');
         if (!reconnectTimer) {
+          // Add ±30% jitter to prevent thundering herd on server recovery
+          const jitter = reconnectDelay * (0.7 + Math.random() * 0.6);
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
             connectWS();
-          }, reconnectDelay);
+          }, jitter);
           reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
         }
       }

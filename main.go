@@ -180,6 +180,10 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	maxUploadSize = int64(cfgMaxUploadSize) * 1024 * 1024
 
+	if cfgMaxConnections < 0 {
+		cfgMaxConnections = 0
+	}
+
 	// Daemon mode: re-exec self without -d/--daemon, fully detached
 	if cfgDaemon {
 		daemonize()
@@ -359,6 +363,12 @@ func run(cmd *cobra.Command, args []string) error {
 			return
 		}
 		token := generateAttachToken()
+		if token == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"token generation failed"}`))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"token":      token,

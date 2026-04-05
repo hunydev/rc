@@ -95,17 +95,25 @@ var attachTokens = &attachTokenStore{tokens: make(map[string]time.Time)}
 func generateAttachToken() string {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
-		// fallback to timestamp-based token
-		b = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		log.Printf("CRITICAL: crypto/rand failed: %v", err)
+		return ""
 	}
 	token := hex.EncodeToString(b)
 	hashed := hashPassword(token)
 	attachTokens.mu.Lock()
 	attachTokens.tokens[hashed] = time.Now().Add(attachTokenExpiry)
 	attachTokens.mu.Unlock()
-	// Prune expired tokens in background
-	go attachTokens.prune()
 	return token
+}
+
+func init() {
+	// Single background goroutine to prune expired attach tokens
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		for range ticker.C {
+			attachTokens.prune()
+		}
+	}()
 }
 
 // checkAttachToken validates a Bearer token against active attach tokens.
@@ -164,8 +172,9 @@ type loginRateLimiter struct {
 func newLoginRateLimiter() *loginRateLimiter {
 	rl := &loginRateLimiter{records: make(map[string]*ipRecord)}
 	// Periodically clean up expired records
+	ticker := time.NewTicker(10 * time.Minute)
 	go func() {
-		for range time.Tick(10 * time.Minute) {
+		for range ticker.C {
 			rl.mu.Lock()
 			now := time.Now()
 			for ip, rec := range rl.records {

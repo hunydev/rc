@@ -66,8 +66,11 @@ func (m *PTYManager) Restart() (<-chan []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.session.Kill()
-	m.session.Close()
+	if m.session != nil {
+		m.session.Kill()
+		m.session.Wait() // ensure old process exits and readLoop drains
+		m.session.Close()
+	}
 	m.buf.Reset()
 
 	cols, rows := m.curCols, m.curRows

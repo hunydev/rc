@@ -102,6 +102,7 @@ func safeSend(ch chan<- []byte, msg []byte) {
 	select {
 	case ch <- msg:
 	default:
+		log.Printf("Warning: message dropped (channel full)")
 	}
 }
 
@@ -122,7 +123,7 @@ func mustMarshal(v interface{}) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {
 		log.Printf("JSON marshal error: %v", err)
-		return nil
+		return []byte(`{"type":"error","data":"internal marshal error"}`)
 	}
 	return data
 }
@@ -715,28 +716,38 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	if agentID != "" {
 		existingBase := -1
 		existingCount := 0
+		matchOK := true
+		var existingIndices []int
 		for i, tab := range h.tabs {
 			if tab != nil && tab.agentID == agentID && tab.Remote && !tab.Removed {
 				if existingBase == -1 {
 					existingBase = i
 				}
+				existingIndices = append(existingIndices, i)
 				existingCount++
 			}
 		}
-		// Reconnect if we found matching disconnected tabs with the same count
+		// Verify tab count AND command names match to prevent misrouting
 		if existingBase >= 0 && existingCount == len(regMsg.Tabs) {
+			for j, idx := range existingIndices {
+				if j < len(regMsg.Tabs) && h.tabs[idx].Command != regMsg.Tabs[j].Command {
+					matchOK = false
+					break
+				}
+			}
+		} else {
+			matchOK = false
+		}
+		if matchOK {
 			reconnected = true
 			agentConn.baseTab = existingBase
-			tabIdx := 0
-			for i, tab := range h.tabs {
-				if tab != nil && tab.agentID == agentID && tab.Remote && !tab.Removed {
-					tab.agent = agentConn
-					tab.agentTab = tabIdx
-					tab.Status = "running"
-					tab.Addr = agentAddr
-					tabIdx++
-					log.Printf("Agent reconnected: reusing tab %d (%s)", i, tab.Name)
-				}
+			for j, idx := range existingIndices {
+				tab := h.tabs[idx]
+				tab.agent = agentConn
+				tab.agentTab = j
+				tab.Status = "running"
+				tab.Addr = agentAddr
+				log.Printf("Agent reconnected: reusing tab %d (%s)", idx, tab.Name)
 			}
 		}
 	}
