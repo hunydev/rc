@@ -84,7 +84,8 @@ type TabEntry struct {
 
 	// For remote tabs (nil for local tabs)
 	agent    *AgentConn
-	agentTab int // tab index relative to the agent
+	agentTab int    // tab index relative to the agent
+	agentID  string // stable agent identifier for reconnection
 }
 
 // AgentConn represents a connected remote agent.
@@ -165,6 +166,7 @@ type WSMessage struct {
 	Remote   bool      `json:"remote,omitempty"`
 	Meta     *TabInfo  `json:"meta,omitempty"`
 	Filename string    `json:"filename,omitempty"`
+	AgentID  string    `json:"agentId,omitempty"`
 }
 
 // TabInfo describes a tab in the 'tabs' message.
@@ -705,31 +707,72 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		agentAddr = agentHostname
 	}
 
+	agentID := regMsg.AgentID
+	reconnected := false
+
 	h.mu.Lock()
-	baseTab := len(h.tabs)
-	agentConn.baseTab = baseTab
-	for i, ti := range regMsg.Tabs {
-		h.tabs = append(h.tabs, &TabEntry{
-			Name:      ti.Name,
-			Command:   ti.Command,
-			Remote:    true,
-			Buf:       NewOutputBuffer(remoteTabBufBytes),
-			Status:    "running",
-			agent:     agentConn,
-			agentTab:  i,
-			User:      agentUser,
-			Hostname:  agentHostname,
-			Workspace: agentWorkspace,
-			Addr:      agentAddr,
-			NoRestart: ti.NoRestart,
-			Readonly:  ti.Readonly,
-			Upload:    ti.Upload,
-		})
+	// Try to find existing disconnected tabs from the same agent (reconnection)
+	if agentID != "" {
+		existingBase := -1
+		existingCount := 0
+		for i, tab := range h.tabs {
+			if tab != nil && tab.agentID == agentID && tab.Remote && !tab.Removed {
+				if existingBase == -1 {
+					existingBase = i
+				}
+				existingCount++
+			}
+		}
+		// Reconnect if we found matching disconnected tabs with the same count
+		if existingBase >= 0 && existingCount == len(regMsg.Tabs) {
+			reconnected = true
+			agentConn.baseTab = existingBase
+			tabIdx := 0
+			for i, tab := range h.tabs {
+				if tab != nil && tab.agentID == agentID && tab.Remote && !tab.Removed {
+					tab.agent = agentConn
+					tab.agentTab = tabIdx
+					tab.Status = "running"
+					tab.Addr = agentAddr
+					tabIdx++
+					log.Printf("Agent reconnected: reusing tab %d (%s)", i, tab.Name)
+				}
+			}
+		}
+	}
+
+	if !reconnected {
+		baseTab := len(h.tabs)
+		agentConn.baseTab = baseTab
+		for i, ti := range regMsg.Tabs {
+			h.tabs = append(h.tabs, &TabEntry{
+				Name:      ti.Name,
+				Command:   ti.Command,
+				Remote:    true,
+				Buf:       NewOutputBuffer(remoteTabBufBytes),
+				Status:    "running",
+				agent:     agentConn,
+				agentTab:  i,
+				agentID:   agentID,
+				User:      agentUser,
+				Hostname:  agentHostname,
+				Workspace: agentWorkspace,
+				Addr:      agentAddr,
+				NoRestart: ti.NoRestart,
+				Readonly:  ti.Readonly,
+				Upload:    ti.Upload,
+			})
+		}
 	}
 	h.agents[agentConn] = true
+	baseTab := agentConn.baseTab
 	h.mu.Unlock()
 
-	log.Printf("Agent attached from %s: %d tabs (indices %d-%d)", r.RemoteAddr, len(regMsg.Tabs), baseTab, baseTab+len(regMsg.Tabs)-1)
+	if reconnected {
+		log.Printf("Agent reconnected from %s: reusing tabs (agentID=%s)", r.RemoteAddr, agentID)
+	} else {
+		log.Printf("Agent attached from %s: %d tabs (indices %d-%d)", r.RemoteAddr, len(regMsg.Tabs), baseTab, baseTab+len(regMsg.Tabs)-1)
+	}
 
 	// If the agent authenticated via attach token, send the real bearer
 	// token so it can reconnect without needing a new attach token.
@@ -739,21 +782,36 @@ func (h *Hub) HandleAttach(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Agent %s: upgraded from attach token to bearer", r.RemoteAddr)
 	}
 
-	// Notify all browser clients of new tabs
-	for i, ti := range regMsg.Tabs {
-		tabIdx := baseTab + i
-		meta := &TabInfo{
-			Command:   ti.Command,
-			User:      agentUser,
-			Hostname:  agentHostname,
-			Workspace: agentWorkspace,
-			Addr:      agentAddr,
-			NoRestart: ti.NoRestart,
-			Readonly:  ti.Readonly,
-			Upload:    ti.Upload,
+	if reconnected {
+		// Notify browsers that existing tabs are back online
+		h.mu.RLock()
+		var reconnectedTabs []int
+		for i, tab := range h.tabs {
+			if tab != nil && tab.agentID == agentID && tab.Remote && !tab.Removed {
+				reconnectedTabs = append(reconnectedTabs, i)
+			}
 		}
-		addMsg := mustMarshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
-		h.broadcastToClients(addMsg)
+		h.mu.RUnlock()
+		for _, idx := range reconnectedTabs {
+			h.BroadcastStatus(idx, "running")
+		}
+	} else {
+		// Notify all browser clients of new tabs
+		for i, ti := range regMsg.Tabs {
+			tabIdx := baseTab + i
+			meta := &TabInfo{
+				Command:   ti.Command,
+				User:      agentUser,
+				Hostname:  agentHostname,
+				Workspace: agentWorkspace,
+				Addr:      agentAddr,
+				NoRestart: ti.NoRestart,
+				Readonly:  ti.Readonly,
+				Upload:    ti.Upload,
+			}
+			addMsg := mustMarshal(WSMessage{Type: "tab_added", Tab: tabIdx, Data: ti.Name, Remote: true, Meta: meta})
+			h.broadcastToClients(addMsg)
+		}
 	}
 
 	// Agent writer goroutine with ping

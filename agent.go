@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ type Agent struct {
 	sessions    []*agentSession
 	password    string
 	bearerToken string // persistent bearer from hub (upgraded from attach token)
+	agentID     string // stable identifier for reconnection
 	noRestart   bool
 	readonly    bool
 	upload      bool
@@ -61,10 +63,16 @@ func RunAgent(target string, commands []string, labels []string, cols, rows uint
 		sessions[i] = &agentSession{Name: name, Command: cmd, PtyMgr: ptyMgr, Buf: buf}
 	}
 
+	// Generate stable agent ID for session reconnection
+	idBytes := make([]byte, 16)
+	rand.Read(idBytes)
+	agentID := fmt.Sprintf("%x", idBytes)
+
 	agent := &Agent{
 		target:    buildAttachURL(target),
 		sessions:  sessions,
 		password:  password,
+		agentID:   agentID,
 		noRestart: noRestart,
 		readonly:  readonly,
 		upload:    upload,
@@ -231,7 +239,7 @@ func (a *Agent) connect() error {
 			Upload:    a.upload,
 		}
 	}
-	regMsg := mustMarshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos})
+	regMsg := mustMarshal(WSMessage{Type: "register", Data: currentUser, Tabs: tabInfos, AgentID: a.agentID})
 	writeCh <- regMsg
 
 	// Send buffer snapshots and current status for each session
