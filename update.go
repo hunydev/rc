@@ -265,8 +265,11 @@ func downloadAndInstall(url, execPath string) error {
 	return extractTarGzBinary(resp.Body, execPath)
 }
 
-// extractTarGzBinary extracts the "rc" binary from a tar.gz archive into destPath.
+// extractTarGzBinary extracts the binary from a tar.gz archive into destPath.
+// It looks for a binary matching the current executable name.
 func extractTarGzBinary(r io.Reader, destPath string) error {
+	binaryName := filepath.Base(destPath)
+
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("gzip open failed: %w", err)
@@ -277,13 +280,13 @@ func extractTarGzBinary(r io.Reader, destPath string) error {
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			return fmt.Errorf("binary 'rc' not found in archive")
+			return fmt.Errorf("binary '%s' not found in archive", binaryName)
 		}
 		if err != nil {
 			return fmt.Errorf("tar read failed: %w", err)
 		}
 
-		if header.Name == "rc" && header.Typeflag == tar.TypeReg {
+		if header.Name == binaryName && header.Typeflag == tar.TypeReg {
 			// Write to temp file in same directory for atomic rename
 			dir := filepath.Dir(destPath)
 			tmp, err := os.CreateTemp(dir, ".rc-update-*")
