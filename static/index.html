@@ -1719,7 +1719,7 @@
         connectWS();
         return;
       }
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         authRequired = true;
         document.getElementById('login-overlay').classList.add('visible');
         document.getElementById('login-password').focus();
@@ -2150,8 +2150,8 @@
         if (authRequired) {
           fetch(routePrefix + '/info', { headers: authHeaders() })
             .then(res => {
-              if (res.status === 401) {
-                // Session expired — show login screen
+              if (res.status === 401 || res.status === 403) {
+                // Auth expired — redirect to login
                 authToken = '';
                 sessionStorage.removeItem('rc-token');
                 if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
